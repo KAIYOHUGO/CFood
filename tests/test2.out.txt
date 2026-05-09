@@ -1,0 +1,3 @@
+==Error== 14: Type mismatch for the operator % in an expression.
+==Error== 14: Type mismatch for the two sides of an assignment.
+==Error== 15: Type mismatch for the two sides of an assignment.

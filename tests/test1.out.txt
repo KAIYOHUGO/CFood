@@ -1,0 +1,5 @@
+==Error== 6: Redeclared identifier.
+==Error== 8: Undeclared identifier.
+==Error== 9: Type mismatch for the operator + in an expression.
+==Error== 9: Type mismatch for the two sides of an assignment.
+==Error== 11: Type mismatch for the two sides of an assignment.
