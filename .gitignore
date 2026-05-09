@@ -1,0 +1,9 @@
+.direnv
+*.jar
+
+homework
+/antlr
+
+# Added by cargo
+
+/target

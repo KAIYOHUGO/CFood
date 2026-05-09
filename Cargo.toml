@@ -1,0 +1,10 @@
+[package]
+name = "cfood"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# antlr4rust = "0.5.2"
+anyhow = "1.0.102"
+dbt-antlr4 = "=1.0.5"
+# dbt-antlr4 = "1.2.1"
