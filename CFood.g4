@@ -218,9 +218,24 @@ iter_stmt
         let bound = recog.tlt.new_ty(Ty::bool());
         let expr = *$expr.ty_id;
         let line = $KW_while.line;
-        recog.tlt.assert_ty_id(bound, expr, line);        
+        recog.tlt.assert_ty_id(bound, expr, line);
     };
-return_stmt: KW_return SEMICOLON | KW_return expr SEMICOLON;
+return_stmt
+    : KW_return SEMICOLON
+    {
+        let line = $KW_return.line;
+        let bound = recog.tlt.var("return", line);
+        let expr = recog.tlt.new_ty(Ty::void());
+        recog.tlt.assert_ty_id(bound, expr, line);
+    }
+    | KW_return expr SEMICOLON
+    {
+        let line = $KW_return.line;
+        let bound = recog.tlt.var("return", line);
+        let expr = *$expr.ty_id;
+        recog.tlt.assert_ty_id(bound, expr, line);
+    };
+
 let_stmt
     : KW_let IDENT ASSIGN expr SEMICOLON
     {
