@@ -19,7 +19,7 @@ int first(int a, int _) {
 
 // get second element of Vec
 int second(int _, int b) {
-  return b;
+  return 1.1;
 }
 
 void main(void) {
@@ -37,7 +37,14 @@ void main(void) {
     } else {
       // type: float
       let b = 1.1 + 10.2;
-      float c = 2;
+
+      float c = 2; // error: float != int
+      let c = 5.5; // error: duplicate declare
+      {
+        let c = 2; // variable shadowing
+
+        a[b];
+      }
     }
   }
 }
