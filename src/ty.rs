@@ -67,6 +67,13 @@ impl Ty {
             ..Default::default()
         }
     }
+
+    pub fn int() -> Self {
+        Self {
+            outputs: vec![Primitive::Int],
+            ..Default::default()
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]

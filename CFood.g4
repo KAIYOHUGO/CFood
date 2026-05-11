@@ -283,6 +283,10 @@ var returns [ty_id: TyId]
         let name = $IDENT.text;
         let line = $IDENT.line;
         $ty_id = recog.tlt.var_arr(name, line);
+
+        let bound = recog.tlt.new_ty(Ty::int());
+        let expr = *$expr.ty_id;
+        recog.tlt.assert_ty_id(bound, expr, line);
     };
 calc_expr returns [ty_id: TyId]
     : lhs=call_preced_expr cmp_preced_op rhs=call_preced_expr

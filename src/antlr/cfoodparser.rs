@@ -3679,6 +3679,7 @@ pub type VarContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena,
 pub struct VarContextExt<'input, 'arena> {
 	pub ty_id: TyId,
 	pub IDENT: Option<&'arena dyn Token >,
+	pub expr: Option<&'arena ExprContextAll<'input, 'arena>>,
     ph: PhantomData<(&'arena (), &'input ())>,
 }
 
@@ -3711,6 +3712,7 @@ impl<'input, 'arena> VarContextExt<'input, 'arena>{
 
         BaseParserRuleContext::new(arena, parent, invoking_state, VarContextExt {
 				IDENT: None, 
+				expr: None, 
 				ty_id: _init_ty_id, 
 				ph: PhantomData
 			},
@@ -3804,7 +3806,8 @@ where
 					recog.base.match_token(CFood_BRACKET_L,&mut recog.err_handler)?;
 					/*InvokeRule expr*/
 					recog.base.set_state(270);
-					recog.expr()?;
+					let tmp = recog.expr()?;
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<VarContext>().unwrap().expr = Some(tmp); } 
 					recog.base.set_state(271);
 					recog.base.match_token(CFood_BRACKET_R,&mut recog.err_handler)?;
 
@@ -3812,6 +3815,10 @@ where
 					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<VarContext>().unwrap().IDENT { it.get_line() } else { 0 } ;
 					        let tmp = { recog.tlt.var_arr(name, line)}.to_owned();
 					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<VarContext>().unwrap().set_ty_id(tmp); }
+
+					        let bound = recog.tlt.new_ty(Ty::int());
+					        let expr = *recog.ctx().unwrap().as_rule_context::<VarContext>().unwrap().expr.as_ref().unwrap().get_ty_id();
+					        recog.tlt.assert_ty_id(bound, expr, line);
 					    
 					}
 				}
