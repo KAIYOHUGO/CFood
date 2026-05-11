@@ -105,11 +105,11 @@ impl TLT {
             Number::Int(size) if *size >= 0 => outputs.repeat(*size as usize),
             Number::Int(_) => {
                 self.error(line, "Negative int is not a vaild size");
-                vec![Primitive::Unkonwn]
+                vec![Primitive::Unknown]
             }
             Number::Float(_) => {
                 self.error(line, "Float is not a vaild size");
-                vec![Primitive::Unkonwn]
+                vec![Primitive::Unknown]
             }
         };
         let id = self.new_ty(Ty {
@@ -163,7 +163,7 @@ impl TLT {
             .outputs
             .iter()
             .map(|x| *x)
-            .reduce(|acc, e| if acc != e { Primitive::Unkonwn } else { acc });
+            .reduce(|acc, e| if acc != e { Primitive::Unknown } else { acc });
         let is_arr = ty.inputs.is_empty()
             && !ty.outputs.is_empty()
             && index_ty.map(|x| !x.is_unknown()).unwrap_or_default();
@@ -292,7 +292,7 @@ impl TLT {
 
         let ty = if error {
             Ty {
-                inputs: vec![Primitive::Unkonwn],
+                inputs: vec![Primitive::Unknown],
                 outputs: [rhs.outputs, lhs.outputs].concat(),
             }
         } else {
@@ -322,7 +322,7 @@ impl TLT {
             _ if lhs == rhs => lhs,
             _ => {
                 self.error(line, format!("Type cast fail, {lhs} cannot cast to {rhs}"));
-                Primitive::Unkonwn
+                Primitive::Unknown
             }
         }
     }

@@ -45,19 +45,22 @@ impl Display for Ty {
 impl Ty {
     pub fn unknown_fn() -> Self {
         Self {
-            inputs: vec![Primitive::Unkonwn],
-            outputs: vec![Primitive::Unkonwn],
+            inputs: vec![Primitive::Unknown],
+            outputs: vec![Primitive::Unknown],
         }
     }
+
     pub fn unknown() -> Self {
         Self {
-            outputs: vec![Primitive::Unkonwn],
+            outputs: vec![Primitive::Unknown],
             ..Default::default()
         }
     }
+
     pub fn void() -> Self {
         Default::default()
     }
+
     pub fn bool() -> Self {
         Self {
             outputs: vec![Primitive::Bool],
@@ -80,12 +83,12 @@ pub enum Primitive {
     Any,
     /// Unknown never equal
     #[default]
-    Unkonwn,
+    Unknown,
 }
 
 impl Primitive {
     pub fn is_unknown(&self) -> bool {
-        if let Primitive::Unkonwn = *self {
+        if let Primitive::Unknown = *self {
             true
         } else {
             false
@@ -117,7 +120,7 @@ impl Display for Primitive {
             Primitive::Void => "ε",
             Primitive::Bool => "bool",
             Primitive::Any => "*",
-            Primitive::Unkonwn => "?",
+            Primitive::Unknown => "?",
         };
 
         f.write_str(s)
@@ -127,7 +130,7 @@ impl Display for Primitive {
 impl PartialEq for Primitive {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (_, Primitive::Unkonwn) | (Primitive::Unkonwn, _) => false,
+            (_, Primitive::Unknown) | (Primitive::Unknown, _) => false,
             (_, Primitive::Any) | (Primitive::Any, _) => true,
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
@@ -142,7 +145,7 @@ pub enum TyRaw {
 
 impl Default for TyRaw {
     fn default() -> Self {
-        TyRaw::Kind(TyKind::Primitive(Primitive::Unkonwn))
+        TyRaw::Kind(TyKind::Primitive(Primitive::Unknown))
     }
 }
 
