@@ -36,7 +36,7 @@ impl Display for Ty {
 
         let inputs = inputs
             .is_empty()
-            .then_some("ε".to_owned())
+            .then_some(".".to_owned())
             .unwrap_or(inputs);
         write!(f, "{inputs} -> {outputs}")
     }
@@ -124,7 +124,7 @@ impl Display for Primitive {
         let s = match self {
             Primitive::Int => "int",
             Primitive::Float => "float",
-            Primitive::Void => "ε",
+            Primitive::Void => ".",
             Primitive::Bool => "bool",
             Primitive::Any => "*",
             Primitive::Unknown => "?",
