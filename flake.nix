@@ -23,6 +23,7 @@
             with pkgs;
             mkShell {
               buildInputs = [
+                llvm_18
               ];
               nativeBuildInputs = [
                 rustc
