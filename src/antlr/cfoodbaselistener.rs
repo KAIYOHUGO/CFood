@@ -2,6 +2,7 @@
 
 
 
+    #![allow(unused_imports)]
 	use crate::ty::*;
 	use crate::tlt::*;
 

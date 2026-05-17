@@ -1,8 +1,6 @@
 use dbt_antlr4::{
-    errors::ANTLRError,
-    parser_rule_context::ParserRuleContext,
-    rule_context::RuleContext,
-    tree::{ParseTree, ParseTreeListener, RuleNode},
+    errors::ANTLRError, parser_rule_context::ParserRuleContext, rule_context::RuleContext,
+    tree::ParseTreeListener,
 };
 
 use crate::{

@@ -7,6 +7,7 @@
 #![allow(unused_braces)]
 #![allow(unused_parens)]
 
+    #![allow(unused_imports)]
 	use crate::ty::*;
 	use crate::tlt::*;
 

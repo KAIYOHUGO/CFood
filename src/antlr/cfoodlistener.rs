@@ -1,6 +1,7 @@
 #![allow(nonstandard_style)]
 // Generated from ./CFood.g4 by ANTLR 4.13.2
 
+    #![allow(unused_imports)]
 	use crate::ty::*;
 	use crate::tlt::*;
 
