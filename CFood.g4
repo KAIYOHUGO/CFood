@@ -196,15 +196,16 @@ block
 stmts: stmt stmts | ;
 stmt: var_decl | let_stmt | expr SEMICOLON
     | branch_stmt | iter_stmt | return_stmt | block;
+may_empty_stmt: stmt | SEMICOLON;
 branch_stmt
-    : KW_if PAREN_L expr PAREN_R stmt
+    : KW_if PAREN_L expr PAREN_R may_empty_stmt
     {
         let bound = recog.tlt.new_ty(Ty::bool());
         let expr = *$expr.ty_id;
         let line = $KW_if.line;
         recog.tlt.assert_ty_id(bound, expr, line);
     }
-    | KW_if PAREN_L expr PAREN_R stmt KW_else stmt
+    | KW_if PAREN_L expr PAREN_R may_empty_stmt KW_else may_empty_stmt
     {
         let bound = recog.tlt.new_ty(Ty::bool());
         let expr = *$expr.ty_id;
@@ -213,7 +214,7 @@ branch_stmt
     };
 
 iter_stmt
-    : KW_while PAREN_L expr PAREN_R stmt
+    : KW_while PAREN_L expr PAREN_R may_empty_stmt
     {
         let bound = recog.tlt.new_ty(Ty::bool());
         let expr = *$expr.ty_id;

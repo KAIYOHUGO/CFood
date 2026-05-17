@@ -156,6 +156,14 @@ where
     /// @param ctx the parse tree
     fn exit_stmt(&mut self, _ctx: &StmtContext<'input, 'arena>) -> Result<(), ANTLRError> { Ok(()) }
 
+    /// Enter a parse tree produced by {@link CFoodParser#may_empty_stmt}.
+    /// @param ctx the parse tree
+    fn enter_may_empty_stmt(&mut self, _ctx: &May_empty_stmtContext<'input, 'arena>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Exit a parse tree produced by {@link CFoodParser#may_empty_stmt}.
+    /// @param ctx the parse tree
+    fn exit_may_empty_stmt(&mut self, _ctx: &May_empty_stmtContext<'input, 'arena>) -> Result<(), ANTLRError> { Ok(()) }
+
     /// Enter a parse tree produced by {@link CFoodParser#branch_stmt}.
     /// @param ctx the parse tree
     fn enter_branch_stmt(&mut self, _ctx: &Branch_stmtContext<'input, 'arena>) -> Result<(), ANTLRError> { Ok(()) }

@@ -234,6 +234,18 @@ pub trait CFoodBaseListener<'input>:
      * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
      * @param ctx the parse tree
      */
+    fn enter_may_empty_stmt(&mut self, _ctx: &May_empty_stmtContext<'input>) {}
+    /**
+     * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
+     * @param ctx the parse tree
+     */
+    fn exit_may_empty_stmt(&mut self, _ctx: &May_empty_stmtContext<'input>) {}
+
+
+    /**
+     * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
+     * @param ctx the parse tree
+     */
     fn enter_branch_stmt(&mut self, _ctx: &Branch_stmtContext<'input>) {}
     /**
      * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
