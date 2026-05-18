@@ -24,7 +24,6 @@ fn main() -> Result<()> {
         let input = args.next().ok_or_else(|| anyhow!("You need pass file!"))?;
         fs::read_to_string(input)?
     };
-    eprintln!("get: {data}");
 
     let ast = Arena::with(|arena| {
         let lexer = cfoodlexer::CFoodLexer::<_, CommonTokenFactory>::new(

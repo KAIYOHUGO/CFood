@@ -3,3 +3,6 @@ build-grammar:
 
 test FILE:
     PRETTY=1 cargo run -- {{FILE}}
+
+# build jar
+# , jar cvmf antlr/META-INF/MANIFEST.MF antlr.jar -C antlr/ .

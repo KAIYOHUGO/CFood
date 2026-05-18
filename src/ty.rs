@@ -144,7 +144,7 @@ impl PartialEq for Primitive {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum TyRaw {
     Kind(TyKind),
     Arrow(TyKind, Box<TyRaw>),
@@ -156,7 +156,7 @@ impl Default for TyRaw {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum TyKind {
     Primitive(Primitive),
     Type(String),
@@ -168,7 +168,7 @@ impl Default for TyKind {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum Number {
     Int(i32),
     Float(f32),

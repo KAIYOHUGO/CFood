@@ -14,17 +14,20 @@
 use dbt_antlr4::Arena;
 use dbt_antlr4::PredictionContextCache;
 use dbt_antlr4::parser::{Parser, BaseParser, ParserRecog, ListenerId};
+use dbt_antlr4::token::CommonToken;
 use dbt_antlr4::token_stream::TokenStream;
 use dbt_antlr4::TokenSource;
 use dbt_antlr4::parser_atn_simulator::ParserATNSimulator;
 use dbt_antlr4::errors::ANTLRError;
 use dbt_antlr4::rule_context::{CustomRuleContext, RuleContext};
 use dbt_antlr4::recognizer::{Recognizer,Actions};
+use dbt_antlr4::atn_config_set::ATNConfigSet;
 use dbt_antlr4::atn_deserializer::ATNDeserializer;
-use dbt_antlr4::dfa::DFA;
+use dbt_antlr4::atn_simulator::BaseATNSimulator;
+use dbt_antlr4::atn_simulator::ParserATNSimulatorManager as ATNSimulatorManager;
 use dbt_antlr4::atn::{ATN, INVALID_ALT};
 use dbt_antlr4::error_strategy::{DefaultErrorStrategy, ErrorStrategyDelegate, ErrorStrategy};
-use dbt_antlr4::parser_rule_context::{BaseParserRuleContext, BaseParserRuleContextInner, ParserRuleContext};
+use dbt_antlr4::parser_rule_context::{BaseParserRuleContext, ParserRuleContext};
 use dbt_antlr4::tree::*;
 use dbt_antlr4::token::{TOKEN_EOF,Token};
 use dbt_antlr4::int_stream::EOF;
@@ -32,9 +35,11 @@ use dbt_antlr4::vocabulary::{Vocabulary,VocabularyImpl};
 use dbt_antlr4::token_factory::TokenFactory;
 use super::cfoodlistener::*;
 use std::marker::PhantomData;
-use std::sync::{LazyLock, Arc};
+use std::sync::LazyLock;
+use std::rc::Rc;
 use std::ops::{DerefMut, Deref};
 
+dbt_antlr4::check_version!("1","3");
 pub const CFood_KW_while:i32=1; 
 pub const CFood_KW_if:i32=2; 
 pub const CFood_KW_else:i32=3; 
@@ -138,10 +143,10 @@ pub const _SYMBOLIC_NAMES: [Option<&'static str>;38]  = [
 	Some("COMMENT"), Some("WS")
 ];
 
-static _shared_context_cache: LazyLock<PredictionContextCache> = LazyLock::new(|| PredictionContextCache::new());
 static VOCABULARY: LazyLock<Box<dyn Vocabulary>> = LazyLock::new(|| Box::new(VocabularyImpl::new(_LITERAL_NAMES.iter(), _SYMBOLIC_NAMES.iter(), None)));
 
-pub type BaseParserType<'input, 'arena, Input, TF> = BaseParser<'input, 'arena, CFoodParserExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>, Input, TF, dyn CFoodListener<'input, 'arena>>;
+pub type BaseParserType<'input, 'arena, Input, TF> = BaseParser<'input, 'arena, CFoodParserExt<'input, 'arena>, CFoodParserNodeKind, Input, TF>;
+pub fn parser_simulator_manager() -> &'static ATNSimulatorManager { &ATN_SIMULATOR_MANAGER }
 
 pub struct CFoodParser<'input, 'arena, Input, TF>
 where
@@ -150,7 +155,6 @@ where
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
 	base: BaseParserType<'input, 'arena, Input, TF>,
-    interpreter: Arc<ParserATNSimulator>,
     err_handler: ErrorStrategyDelegate<'input, 'arena, TF, BaseParserType<'input, 'arena, Input, TF>>,
 }
 
@@ -161,17 +165,9 @@ where
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
     pub fn with_strategy(arena: &'arena Arena, input: Input, strategy: Box<dyn ErrorStrategy<'input, 'arena, TF, BaseParserType<'input, 'arena, Input, TF>> + 'arena>) -> Self {
-		dbt_antlr4::recognizer::check_version("1","0");
-		let interpreter = Arc::new(ParserATNSimulator::new(
-			&_ATN,
-			&_decision_to_DFA,
-			&_shared_context_cache,
-		));
 		Self {
 			base: BaseParser::new_base_parser(
-				arena,
-				input,
-				Arc::clone(&interpreter),
+				arena, input,
 				CFoodParserExt {
 					_pd: Default::default(),
 
@@ -179,7 +175,6 @@ where
 
 				}
 			),
-			interpreter,
             err_handler: unsafe { ErrorStrategyDelegate::new(strategy) },
         }
     }
@@ -202,7 +197,7 @@ where
         listener: Box<L>,
     ) -> ListenerId<L>
     where
-        L: CFoodListener<'input, 'arena> + 'static,
+        L: CFoodListener<'arena, TF::Tok> + 'static,
     {
         let id = ListenerId::new(&listener);
         self.base.add_dyn_parse_listener(listener);
@@ -212,100 +207,71 @@ where
 pub struct CFoodTreeWalker;
 impl CFoodTreeWalker
 {
-    pub fn walk<'input,'arena, L, T>(
+    pub fn walk<'input, 'arena, Tok, L, T>(
         listener: Box<L>,
         tree: &'arena T,
     ) -> Result<Box<L>, ANTLRError>
     where
         'input: 'arena,
-        L: CFoodListener<'input, 'arena> + 'static,
-        T: NodeInner<'input, 'arena, CFoodParserContextNode<'input, 'arena>>,
+        L: CFoodListener<'arena, Tok> + 'static,
+        T: NodeInner<'input, 'arena, CFoodParserNodeKind, Tok>,
+        Tok: Token + 'input,
     {
-        let Some(node) = tree.try_as_node() else {
-            return Err(ANTLRError::custom_error("TreeWalker can only walk non-leaf nodes".to_string()));
-        };
         let listener_ptr = Box::into_raw(listener);
-        let listener = unsafe { Box::from_raw(listener_ptr as *mut <CFoodParserContextNode as RuleNode>::Listener) };
-        let listener = ParseTreeWalker::walk(listener, node)?;
+        let listener = unsafe { Box::from_raw(listener_ptr as *mut <CFoodParserNodeKind as NodeKindType<Tok>>::Listener) };
+        let listener = ParseTreeWalker::walk(listener, tree.as_node())?;
         Ok(unsafe { Box::from_raw(Box::into_raw(listener) as *mut L) } )
     }
 }
 
-impl<'input, 'arena, Input, TF> Deref for CFoodParser<'input, 'arena, Input, TF>
-where
-    'input: 'arena,
-    TF: TokenFactory<'input, 'arena> + 'arena,
-    Input: TokenStream<'input, 'arena, TF> + 'arena,
-{
-    type Target = BaseParserType<'input, 'arena, Input, TF>;
-    fn deref(&self) -> &Self::Target {
-        &self.base
-    }
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u16)]
+pub enum CFoodParserNodeKind {
+    FileContext,
+    DeclsContext,
+    DeclContext,
+    Var_declContext,
+    Var_decl_tyContext,
+    Var_decl_initContext,
+    Fn_declContext,
+    Ty_declContext,
+    ParamsContext,
+    Param_listContext,
+    ParamContext,
+    NumberContext,
+    TysContext,
+    TyContext,
+    Ty_kindContext,
+    BlockContext,
+    StmtsContext,
+    StmtContext,
+    May_empty_stmtContext,
+    Branch_stmtContext,
+    Iter_stmtContext,
+    Return_stmtContext,
+    Let_stmtContext,
+    ExprContext,
+    Assign_exprContext,
+    VarContext,
+    Calc_exprContext,
+    Call_preced_exprContext,
+    Add_preced_exprContext,
+    Mul_preced_exprContext,
+    Atom_preced_exprContext,
+    Cmp_preced_opContext,
+    Add_preced_opContext,
+    Mul_preced_opContext,
+    Apply_listContext,
+    ArgsContext,
+    Terminal,
+    Error,
 }
+pub type CFoodParserNode<'input, 'arena, Tok = CommonToken<'input>> = TreeNode<'input, 'arena, CFoodParserNodeKind, Tok>;
 
-impl<'input, 'arena, Input, TF> DerefMut for CFoodParser<'input, 'arena, Input, TF>
-where
-    'input: 'arena,
-    TF: TokenFactory<'input, 'arena> + 'arena,
-    Input: TokenStream<'input, 'arena, TF> + 'arena,
-{
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.base
-    }
-}
-
-#[derive(Debug)]
-pub enum CFoodParserContextNode<'input, 'arena> {
-    FileContext(FileContext<'input, 'arena>),
-    DeclsContext(DeclsContext<'input, 'arena>),
-    DeclContext(DeclContext<'input, 'arena>),
-    Var_declContext(Var_declContext<'input, 'arena>),
-    Var_decl_tyContext(Var_decl_tyContext<'input, 'arena>),
-    Var_decl_initContext(Var_decl_initContext<'input, 'arena>),
-    Fn_declContext(Fn_declContext<'input, 'arena>),
-    Ty_declContext(Ty_declContext<'input, 'arena>),
-    ParamsContext(ParamsContext<'input, 'arena>),
-    Param_listContext(Param_listContext<'input, 'arena>),
-    ParamContext(ParamContext<'input, 'arena>),
-    NumberContext(NumberContext<'input, 'arena>),
-    TysContext(TysContext<'input, 'arena>),
-    TyContext(TyContext<'input, 'arena>),
-    Ty_kindContext(Ty_kindContext<'input, 'arena>),
-    BlockContext(BlockContext<'input, 'arena>),
-    StmtsContext(StmtsContext<'input, 'arena>),
-    StmtContext(StmtContext<'input, 'arena>),
-    May_empty_stmtContext(May_empty_stmtContext<'input, 'arena>),
-    Branch_stmtContext(Branch_stmtContext<'input, 'arena>),
-    Iter_stmtContext(Iter_stmtContext<'input, 'arena>),
-    Return_stmtContext(Return_stmtContext<'input, 'arena>),
-    Let_stmtContext(Let_stmtContext<'input, 'arena>),
-    ExprContext(ExprContext<'input, 'arena>),
-    Assign_exprContext(Assign_exprContext<'input, 'arena>),
-    VarContext(VarContext<'input, 'arena>),
-    Calc_exprContext(Calc_exprContext<'input, 'arena>),
-    Call_preced_exprContext(Call_preced_exprContext<'input, 'arena>),
-    Add_preced_exprContext(Add_preced_exprContext<'input, 'arena>),
-    Mul_preced_exprContext(Mul_preced_exprContext<'input, 'arena>),
-    Atom_preced_exprContext(Atom_preced_exprContext<'input, 'arena>),
-    Cmp_preced_opContext(Cmp_preced_opContext<'input, 'arena>),
-    Add_preced_opContext(Add_preced_opContext<'input, 'arena>),
-    Mul_preced_opContext(Mul_preced_opContext<'input, 'arena>),
-    Apply_listContext(Apply_listContext<'input, 'arena>),
-    ArgsContext(ArgsContext<'input, 'arena>),
-
-    Terminal(TerminalNode<'input, 'arena>),
-    Error(ErrorNode<'input, 'arena>),
-}
-
-dbt_antlr4::impl_defaults! { CFoodParserContextNode }
-dbt_antlr4::impl_from_contexts! { CFoodParserContextNode { FileContext(FileContext),  DeclsContext(DeclsContext),  DeclContext(DeclContext),  Var_declContext(Var_declContext),  Var_decl_tyContext(Var_decl_tyContext),  Var_decl_initContext(Var_decl_initContext),  Fn_declContext(Fn_declContext),  Ty_declContext(Ty_declContext),  ParamsContext(ParamsContext),  Param_listContext(Param_listContext),  ParamContext(ParamContext),  NumberContext(NumberContext),  TysContext(TysContext),  TyContext(TyContext),  Ty_kindContext(Ty_kindContext),  BlockContext(BlockContext),  StmtsContext(StmtsContext),  StmtContext(StmtContext),  May_empty_stmtContext(May_empty_stmtContext),  Branch_stmtContext(Branch_stmtContext),  Iter_stmtContext(Iter_stmtContext),  Return_stmtContext(Return_stmtContext),  Let_stmtContext(Let_stmtContext),  ExprContext(ExprContext),  Assign_exprContext(Assign_exprContext),  VarContext(VarContext),  Calc_exprContext(Calc_exprContext),  Call_preced_exprContext(Call_preced_exprContext),  Add_preced_exprContext(Add_preced_exprContext),  Mul_preced_exprContext(Mul_preced_exprContext),  Atom_preced_exprContext(Atom_preced_exprContext),  Cmp_preced_opContext(Cmp_preced_opContext),  Add_preced_opContext(Add_preced_opContext),  Mul_preced_opContext(Mul_preced_opContext),  Apply_listContext(Apply_listContext),  ArgsContext(ArgsContext),  } }
-dbt_antlr4::impl_tree! { CFoodParserContextNode { FileContext, DeclsContext, DeclContext, Var_declContext, Var_decl_tyContext, Var_decl_initContext, Fn_declContext, Ty_declContext, ParamsContext, Param_listContext, ParamContext, NumberContext, TysContext, TyContext, Ty_kindContext, BlockContext, StmtsContext, StmtContext, May_empty_stmtContext, Branch_stmtContext, Iter_stmtContext, Return_stmtContext, Let_stmtContext, ExprContext, Assign_exprContext, VarContext, Calc_exprContext, Call_preced_exprContext, Add_preced_exprContext, Mul_preced_exprContext, Atom_preced_exprContext, Cmp_preced_opContext, Add_preced_opContext, Mul_preced_opContext, Apply_listContext, ArgsContext, } }
-dbt_antlr4::impl_parse_tree! { CFoodParserContextNode { FileContext, DeclsContext, DeclContext, Var_declContext, Var_decl_tyContext, Var_decl_initContext, Fn_declContext, Ty_declContext, ParamsContext, Param_listContext, ParamContext, NumberContext, TysContext, TyContext, Ty_kindContext, BlockContext, StmtsContext, StmtContext, May_empty_stmtContext, Branch_stmtContext, Iter_stmtContext, Return_stmtContext, Let_stmtContext, ExprContext, Assign_exprContext, VarContext, Calc_exprContext, Call_preced_exprContext, Add_preced_exprContext, Mul_preced_exprContext, Atom_preced_exprContext, Cmp_preced_opContext, Add_preced_opContext, Mul_preced_opContext, Apply_listContext, ArgsContext, } }
-dbt_antlr4::impl_rule_context! { CFoodParserContextNode { FileContext, DeclsContext, DeclContext, Var_declContext, Var_decl_tyContext, Var_decl_initContext, Fn_declContext, Ty_declContext, ParamsContext, Param_listContext, ParamContext, NumberContext, TysContext, TyContext, Ty_kindContext, BlockContext, StmtsContext, StmtContext, May_empty_stmtContext, Branch_stmtContext, Iter_stmtContext, Return_stmtContext, Let_stmtContext, ExprContext, Assign_exprContext, VarContext, Calc_exprContext, Call_preced_exprContext, Add_preced_exprContext, Mul_preced_exprContext, Atom_preced_exprContext, Cmp_preced_opContext, Add_preced_opContext, Mul_preced_opContext, Apply_listContext, ArgsContext,  Terminal, Error, } }
-dbt_antlr4::impl_parser_rule_context! { CFoodParserContextNode { FileContext, DeclsContext, DeclContext, Var_declContext, Var_decl_tyContext, Var_decl_initContext, Fn_declContext, Ty_declContext, ParamsContext, Param_listContext, ParamContext, NumberContext, TysContext, TyContext, Ty_kindContext, BlockContext, StmtsContext, StmtContext, May_empty_stmtContext, Branch_stmtContext, Iter_stmtContext, Return_stmtContext, Let_stmtContext, ExprContext, Assign_exprContext, VarContext, Calc_exprContext, Call_preced_exprContext, Add_preced_exprContext, Mul_preced_exprContext, Atom_preced_exprContext, Cmp_preced_opContext, Add_preced_opContext, Mul_preced_opContext, Apply_listContext, ArgsContext,  Terminal, Error, } }
-dbt_antlr4::impl_rule_node! { CFoodParserContextNode {
+dbt_antlr4::impl_deref! { parser => CFoodParser }
+dbt_antlr4::impl_node_kind! { CFoodParserNodeKind {
 ; FileContext(enter_file, exit_file, ), DeclsContext(enter_decls, exit_decls, ), DeclContext(enter_decl, exit_decl, ), Var_declContext(enter_var_decl, exit_var_decl, ), Var_decl_tyContext(enter_var_decl_ty, exit_var_decl_ty, ), Var_decl_initContext(enter_var_decl_init, exit_var_decl_init, ), Fn_declContext(enter_fn_decl, exit_fn_decl, ), Ty_declContext(enter_ty_decl, exit_ty_decl, ), ParamsContext(enter_params, exit_params, ), Param_listContext(enter_param_list, exit_param_list, ), ParamContext(enter_param, exit_param, ), NumberContext(enter_number, exit_number, ), TysContext(enter_tys, exit_tys, ), TyContext(enter_ty, exit_ty, ), Ty_kindContext(enter_ty_kind, exit_ty_kind, ), BlockContext(enter_block, exit_block, ), StmtsContext(enter_stmts, exit_stmts, ), StmtContext(enter_stmt, exit_stmt, ), May_empty_stmtContext(enter_may_empty_stmt, exit_may_empty_stmt, ), Branch_stmtContext(enter_branch_stmt, exit_branch_stmt, ), Iter_stmtContext(enter_iter_stmt, exit_iter_stmt, ), Return_stmtContext(enter_return_stmt, exit_return_stmt, ), Let_stmtContext(enter_let_stmt, exit_let_stmt, ), ExprContext(enter_expr, exit_expr, ), Assign_exprContext(enter_assign_expr, exit_assign_expr, ), VarContext(enter_var, exit_var, ), Calc_exprContext(enter_calc_expr, exit_calc_expr, ), Call_preced_exprContext(enter_call_preced_expr, exit_call_preced_expr, ), Add_preced_exprContext(enter_add_preced_expr, exit_add_preced_expr, ), Mul_preced_exprContext(enter_mul_preced_expr, exit_mul_preced_expr, ), Atom_preced_exprContext(enter_atom_preced_expr, exit_atom_preced_expr, ), Cmp_preced_opContext(enter_cmp_preced_op, exit_cmp_preced_op, ), Add_preced_opContext(enter_add_preced_op, exit_add_preced_op, ), Mul_preced_opContext(enter_mul_preced_op, exit_mul_preced_op, ), Apply_listContext(enter_apply_list, exit_apply_list, ), ArgsContext(enter_args, exit_args, ), 
-    }; listener = dyn CFoodListener<'input, 'arena>,
+    }; listener = dyn CFoodListener<'arena, Tok>,
 }
 
 pub struct CFoodParserExt<'input, 'arena> {
@@ -318,14 +284,15 @@ pub struct CFoodParserExt<'input, 'arena> {
 impl<'input, 'arena> CFoodParserExt<'input, 'arena> {
 }
 
-impl<'input, 'arena, Input, TF> ParserRecog<'input, 'arena, BaseParserType<'input, 'arena, Input, TF>> for CFoodParserExt<'input, 'arena>
+impl<'input, 'arena, Input, TF> ParserRecog<'input, 'arena, BaseParserType<'input, 'arena, Input, TF>, TF::Tok> for CFoodParserExt<'input, 'arena>
 where
     'input: 'arena,
     TF: TokenFactory<'input, 'arena> + 'arena,
-    Input: TokenStream<'input, 'arena, TF> + 'arena,
-{}
+    Input: TokenStream<'input, 'arena, TF> + 'arena {
+    fn get_atn_simulator_man(&self) -> &'static ATNSimulatorManager { &ATN_SIMULATOR_MANAGER }        
+}
 
-impl<'input, 'arena, Input, TF> Actions<'input, 'arena, BaseParserType<'input, 'arena, Input, TF>> for CFoodParserExt<'input, 'arena>
+impl<'input, 'arena, Input, TF> Actions<'input, 'arena, BaseParserType<'input, 'arena, Input, TF>, TF::Tok> for CFoodParserExt<'input, 'arena>
 where
     'input: 'arena,
     TF: TokenFactory<'input, 'arena> + 'arena,
@@ -336,57 +303,69 @@ where
    	fn get_vocabulary(&self) -> &dyn Vocabulary { &**VOCABULARY }
 }
 //------------------- file ----------------
-pub type FileContextAll<'input, 'arena> = FileContext<'input, 'arena>;
+pub type FileContextAll<'input, 'arena, Tok = CommonToken<'input>> = FileContext<'input, 'arena, Tok>;
 
-pub type FileContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, FileContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct FileContextExt<'input, 'arena> {
-    ph: PhantomData<(&'arena (), &'input ())>,
+pub type FileContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, FileContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct FileContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for FileContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for FileContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::FileContext }
 	fn get_rule_index(&self) -> usize { RULE_file }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::FileContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: FileContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a FileContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => FileContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::FileContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut FileContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut FileContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> FileContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> FileContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> FileContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
-        BaseParserRuleContext::new(arena, parent, invoking_state, FileContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, FileContextExt {
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait FileContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait FileContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
-    fn decls(&self) -> Option<&'arena DeclsContextAll<'input, 'arena>>;
+    fn decls(&self) -> Option<&'arena DeclsContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> FileContextAttrs<'input, 'arena> for FileContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> FileContextAttrs<'input, 'arena, Tok> for FileContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
-    fn decls(&self) -> Option<&'arena DeclsContextAll<'input, 'arena>> {
+    fn decls(&self) -> Option<&'arena DeclsContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -397,11 +376,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn file(&mut self,) -> Result<&'arena FileContextAll<'input, 'arena>, ANTLRError> {
+	pub fn file(&mut self,) -> Result<&'arena FileContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(FileContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 0, RULE_file)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena FileContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(FileContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 0, RULE_file)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena FileContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			/*------- Outer Most Alt 1 -------*/
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -421,64 +401,77 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- decls ----------------
-pub type DeclsContextAll<'input, 'arena> = DeclsContext<'input, 'arena>;
+pub type DeclsContextAll<'input, 'arena, Tok = CommonToken<'input>> = DeclsContext<'input, 'arena, Tok>;
 
-pub type DeclsContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, DeclsContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct DeclsContextExt<'input, 'arena> {
-    ph: PhantomData<(&'arena (), &'input ())>,
+pub type DeclsContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, DeclsContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct DeclsContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for DeclsContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for DeclsContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::DeclsContext }
 	fn get_rule_index(&self) -> usize { RULE_decls }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::DeclsContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: DeclsContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a DeclsContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => DeclsContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::DeclsContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut DeclsContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut DeclsContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> DeclsContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> DeclsContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> DeclsContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
-        BaseParserRuleContext::new(arena, parent, invoking_state, DeclsContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, DeclsContextExt {
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait DeclsContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait DeclsContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
-    fn decl(&self) -> Option<&'arena DeclContextAll<'input, 'arena>>;
-    fn decls(&self) -> Option<&'arena DeclsContextAll<'input, 'arena>>;
+    fn decl(&self) -> Option<&'arena DeclContextAll<'input, 'arena, Tok>>;
+    fn decls(&self) -> Option<&'arena DeclsContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> DeclsContextAttrs<'input, 'arena> for DeclsContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> DeclsContextAttrs<'input, 'arena, Tok> for DeclsContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
-    fn decl(&self) -> Option<&'arena DeclContextAll<'input, 'arena>> {
+    fn decl(&self) -> Option<&'arena DeclContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn decls(&self) -> Option<&'arena DeclsContextAll<'input, 'arena>> {
+    fn decls(&self) -> Option<&'arena DeclsContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -489,11 +482,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn decls(&mut self,) -> Result<&'arena DeclsContextAll<'input, 'arena>, ANTLRError> {
+	pub fn decls(&mut self,) -> Result<&'arena DeclsContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(DeclsContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 2, RULE_decls)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena DeclsContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(DeclsContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 2, RULE_decls)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena DeclsContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(78);
 			recog.err_handler.sync(&mut recog.base)?;
@@ -527,68 +521,81 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- decl ----------------
-pub type DeclContextAll<'input, 'arena> = DeclContext<'input, 'arena>;
+pub type DeclContextAll<'input, 'arena, Tok = CommonToken<'input>> = DeclContext<'input, 'arena, Tok>;
 
-pub type DeclContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, DeclContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct DeclContextExt<'input, 'arena> {
-    ph: PhantomData<(&'arena (), &'input ())>,
+pub type DeclContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, DeclContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct DeclContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for DeclContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for DeclContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::DeclContext }
 	fn get_rule_index(&self) -> usize { RULE_decl }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::DeclContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: DeclContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a DeclContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => DeclContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::DeclContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut DeclContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut DeclContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> DeclContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> DeclContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> DeclContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
-        BaseParserRuleContext::new(arena, parent, invoking_state, DeclContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, DeclContextExt {
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait DeclContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait DeclContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
-    fn var_decl(&self) -> Option<&'arena Var_declContextAll<'input, 'arena>>;
-    fn ty_decl(&self) -> Option<&'arena Ty_declContextAll<'input, 'arena>>;
-    fn fn_decl(&self) -> Option<&'arena Fn_declContextAll<'input, 'arena>>;
+    fn var_decl(&self) -> Option<&'arena Var_declContextAll<'input, 'arena, Tok>>;
+    fn ty_decl(&self) -> Option<&'arena Ty_declContextAll<'input, 'arena, Tok>>;
+    fn fn_decl(&self) -> Option<&'arena Fn_declContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> DeclContextAttrs<'input, 'arena> for DeclContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> DeclContextAttrs<'input, 'arena, Tok> for DeclContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
-    fn var_decl(&self) -> Option<&'arena Var_declContextAll<'input, 'arena>> {
+    fn var_decl(&self) -> Option<&'arena Var_declContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn ty_decl(&self) -> Option<&'arena Ty_declContextAll<'input, 'arena>> {
+    fn ty_decl(&self) -> Option<&'arena Ty_declContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn fn_decl(&self) -> Option<&'arena Fn_declContextAll<'input, 'arena>> {
+    fn fn_decl(&self) -> Option<&'arena Fn_declContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -599,15 +606,16 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn decl(&mut self,) -> Result<&'arena DeclContextAll<'input, 'arena>, ANTLRError> {
+	pub fn decl(&mut self,) -> Result<&'arena DeclContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(DeclContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 4, RULE_decl)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena DeclContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(DeclContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 4, RULE_decl)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena DeclContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(83);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.interpreter.adaptive_predict(1,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(1,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -651,83 +659,96 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- var_decl ----------------
-pub type Var_declContextAll<'input, 'arena> = Var_declContext<'input, 'arena>;
+pub type Var_declContextAll<'input, 'arena, Tok = CommonToken<'input>> = Var_declContext<'input, 'arena, Tok>;
 
-pub type Var_declContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Var_declContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Var_declContextExt<'input, 'arena> {
+pub type Var_declContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Var_declContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Var_declContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub ty_id: TyId,
-	pub var_decl_ty: Option<&'arena Var_decl_tyContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub var_decl_ty: Option<&'arena Var_decl_tyContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Var_declContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Var_declContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Var_declContext }
 	fn get_rule_index(&self) -> usize { RULE_var_decl }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Var_declContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Var_declContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Var_declContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Var_declContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Var_declContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Var_declContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Var_declContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Var_declContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Var_declContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Var_declContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_ty_id = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, Var_declContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Var_declContextExt {
 				var_decl_ty: None, 
 				ty_id: _init_ty_id, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Var_declContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Var_declContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_ty_id(&self) -> &TyId; 
     fn set_ty_id(&mut self,attr: TyId); 
-    fn var_decl_ty(&self) -> Option<&'arena Var_decl_tyContextAll<'input, 'arena>>;
-    fn var_decl_init(&self) -> Option<&'arena Var_decl_initContextAll<'input, 'arena>>;
+    fn var_decl_ty(&self) -> Option<&'arena Var_decl_tyContextAll<'input, 'arena, Tok>>;
+    fn var_decl_init(&self) -> Option<&'arena Var_decl_initContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token SEMICOLON
     /// Returns `None` if there is no child corresponding to token SEMICOLON
-    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Var_declContextAttrs<'input, 'arena> for Var_declContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Var_declContextAttrs<'input, 'arena, Tok> for Var_declContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     fn get_ty_id(&self) -> &TyId { &self.deref().ty_id }  
     fn set_ty_id(&mut self,attr: TyId) { self.deref_mut().ty_id = attr; }  
-    fn var_decl_ty(&self) -> Option<&'arena Var_decl_tyContextAll<'input, 'arena>> {
+    fn var_decl_ty(&self) -> Option<&'arena Var_decl_tyContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn var_decl_init(&self) -> Option<&'arena Var_decl_initContextAll<'input, 'arena>> {
+    fn var_decl_init(&self) -> Option<&'arena Var_decl_initContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token SEMICOLON
     /// Returns `None` if there is no child corresponding to token SEMICOLON
-    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_SEMICOLON, 0)
+    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_SEMICOLON)
     }
 }
 
@@ -737,11 +758,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn var_decl(&mut self,) -> Result<&'arena Var_declContextAll<'input, 'arena>, ANTLRError> {
+	pub fn var_decl(&mut self,) -> Result<&'arena Var_declContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Var_declContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 6, RULE_var_decl)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Var_declContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Var_declContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 6, RULE_var_decl)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Var_declContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			/*------- Outer Most Alt 1 -------*/
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -749,14 +771,14 @@ where
 			/*InvokeRule var_decl_ty*/
 			recog.base.set_state(85);
 			let tmp = recog.var_decl_ty()?;
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_declContext>().unwrap().var_decl_ty = Some(tmp); } 
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_declContext<TF::Tok>>().unwrap().var_decl_ty = Some(tmp); } 
 
-			        let tmp = { *recog.ctx().unwrap().as_rule_context::<Var_declContext>().unwrap().var_decl_ty.as_ref().unwrap().get_ty_id()}.to_owned();
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_declContext>().unwrap().set_ty_id(tmp); }
+			        let tmp = { *recog.ctx().unwrap().as_rule_context::<Var_declContext<TF::Tok>>().unwrap().var_decl_ty.as_ref().unwrap().get_ty_id()}.to_owned();
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_declContext<TF::Tok>>().unwrap().set_ty_id(tmp); }
 			    
 			/*InvokeRule var_decl_init*/
 			recog.base.set_state(87);
-			recog.var_decl_init(*recog.ctx().unwrap().as_rule_context::<Var_declContext>().unwrap().get_ty_id())?;
+			recog.var_decl_init(*recog.ctx().unwrap().as_rule_context::<Var_declContext<TF::Tok>>().unwrap().get_ty_id())?;
 			recog.base.set_state(88);
 			recog.base.match_token(CFood_SEMICOLON,&mut recog.err_handler)?;
 			}
@@ -771,107 +793,120 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- var_decl_ty ----------------
-pub type Var_decl_tyContextAll<'input, 'arena> = Var_decl_tyContext<'input, 'arena>;
+pub type Var_decl_tyContextAll<'input, 'arena, Tok = CommonToken<'input>> = Var_decl_tyContext<'input, 'arena, Tok>;
 
-pub type Var_decl_tyContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Var_decl_tyContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Var_decl_tyContextExt<'input, 'arena> {
+pub type Var_decl_tyContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Var_decl_tyContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Var_decl_tyContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub ty_id: TyId,
-	pub ty: Option<&'arena TyContextAll<'input, 'arena>>,
+	pub ty: Option<&'arena TyContextAll<'input, 'arena, Tok>>,
 	pub IDENT: Option<&'arena dyn Token >,
-	pub ty_kind: Option<&'arena Ty_kindContextAll<'input, 'arena>>,
-	pub number: Option<&'arena NumberContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub ty_kind: Option<&'arena Ty_kindContextAll<'input, 'arena, Tok>>,
+	pub number: Option<&'arena NumberContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Var_decl_tyContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Var_decl_tyContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Var_decl_tyContext }
 	fn get_rule_index(&self) -> usize { RULE_var_decl_ty }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Var_decl_tyContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Var_decl_tyContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Var_decl_tyContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Var_decl_tyContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Var_decl_tyContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Var_decl_tyContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Var_decl_tyContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Var_decl_tyContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Var_decl_tyContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Var_decl_tyContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_ty_id = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, Var_decl_tyContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Var_decl_tyContextExt {
 				IDENT: None, 
 				ty: None, ty_kind: None, number: None, 
 				ty_id: _init_ty_id, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Var_decl_tyContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Var_decl_tyContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_ty_id(&self) -> &TyId; 
     fn set_ty_id(&mut self,attr: TyId); 
-    fn ty(&self) -> Option<&'arena TyContextAll<'input, 'arena>>;
+    fn ty(&self) -> Option<&'arena TyContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token IDENT
     /// Returns `None` if there is no child corresponding to token IDENT
-    fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn ty_kind(&self) -> Option<&'arena Ty_kindContextAll<'input, 'arena>>;
+    fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn ty_kind(&self) -> Option<&'arena Ty_kindContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token BRACKET_L
     /// Returns `None` if there is no child corresponding to token BRACKET_L
-    fn BRACKET_L(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn number(&self) -> Option<&'arena NumberContextAll<'input, 'arena>>;
+    fn BRACKET_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn number(&self) -> Option<&'arena NumberContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token BRACKET_R
     /// Returns `None` if there is no child corresponding to token BRACKET_R
-    fn BRACKET_R(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn BRACKET_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Var_decl_tyContextAttrs<'input, 'arena> for Var_decl_tyContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Var_decl_tyContextAttrs<'input, 'arena, Tok> for Var_decl_tyContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     fn get_ty_id(&self) -> &TyId { &self.deref().ty_id }  
     fn set_ty_id(&mut self,attr: TyId) { self.deref_mut().ty_id = attr; }  
-    fn ty(&self) -> Option<&'arena TyContextAll<'input, 'arena>> {
+    fn ty(&self) -> Option<&'arena TyContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token IDENT
     /// Returns `None` if there is no child corresponding to token IDENT
-    fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_IDENT, 0)
+    fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_IDENT)
     }
-    fn ty_kind(&self) -> Option<&'arena Ty_kindContextAll<'input, 'arena>> {
+    fn ty_kind(&self) -> Option<&'arena Ty_kindContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token BRACKET_L
     /// Returns `None` if there is no child corresponding to token BRACKET_L
-    fn BRACKET_L(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_BRACKET_L, 0)
+    fn BRACKET_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_BRACKET_L)
     }
-    fn number(&self) -> Option<&'arena NumberContextAll<'input, 'arena>> {
+    fn number(&self) -> Option<&'arena NumberContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token BRACKET_R
     /// Returns `None` if there is no child corresponding to token BRACKET_R
-    fn BRACKET_R(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_BRACKET_R, 0)
+    fn BRACKET_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_BRACKET_R)
     }
 }
 
@@ -881,15 +916,16 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn var_decl_ty(&mut self,) -> Result<&'arena Var_decl_tyContextAll<'input, 'arena>, ANTLRError> {
+	pub fn var_decl_ty(&mut self,) -> Result<&'arena Var_decl_tyContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Var_decl_tyContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 8, RULE_var_decl_ty)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Var_decl_tyContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Var_decl_tyContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 8, RULE_var_decl_ty)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Var_decl_tyContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(101);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.interpreter.adaptive_predict(2,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(2,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -897,21 +933,21 @@ where
 					/*InvokeRule ty*/
 					recog.base.set_state(90);
 					let tmp = recog.ty()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_decl_tyContext>().unwrap().ty = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_decl_tyContext<TF::Tok>>().unwrap().ty = Some(tmp); } 
 					recog.base.set_state(91);
 					let tmp = recog.base.match_token(CFood_IDENT,&mut recog.err_handler)?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_decl_tyContext>().unwrap().IDENT = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_decl_tyContext<TF::Tok>>().unwrap().IDENT = Some(tmp); } 
 
-					        let name = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Var_decl_tyContext>().unwrap().IDENT { it.get_text() } else { "null" } ;
-					        let ty_raw = recog.ctx().unwrap().as_rule_context::<Var_decl_tyContext>().unwrap().ty.as_ref().unwrap().get_ty_raw();
-					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Var_decl_tyContext>().unwrap().IDENT { it.get_line() } else { 0 } ;
+					        let name = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Var_decl_tyContext<TF::Tok>>().unwrap().IDENT { it.get_text() } else { "null" } ;
+					        let ty_raw = recog.ctx().unwrap().as_rule_context::<Var_decl_tyContext<TF::Tok>>().unwrap().ty.as_ref().unwrap().get_ty_raw();
+					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Var_decl_tyContext<TF::Tok>>().unwrap().IDENT { it.get_line() } else { 0 } ;
 
 					        let tmp = { recog.tlt.new_var_raw(
 					            name,
 					            ty_raw,
 					            line
 					        )}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_decl_tyContext>().unwrap().set_ty_id(tmp); }
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_decl_tyContext<TF::Tok>>().unwrap().set_ty_id(tmp); }
 					    
 					}
 				}
@@ -923,23 +959,23 @@ where
 					/*InvokeRule ty_kind*/
 					recog.base.set_state(94);
 					let tmp = recog.ty_kind()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_decl_tyContext>().unwrap().ty_kind = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_decl_tyContext<TF::Tok>>().unwrap().ty_kind = Some(tmp); } 
 					recog.base.set_state(95);
 					let tmp = recog.base.match_token(CFood_IDENT,&mut recog.err_handler)?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_decl_tyContext>().unwrap().IDENT = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_decl_tyContext<TF::Tok>>().unwrap().IDENT = Some(tmp); } 
 					recog.base.set_state(96);
 					recog.base.match_token(CFood_BRACKET_L,&mut recog.err_handler)?;
 					/*InvokeRule number*/
 					recog.base.set_state(97);
 					let tmp = recog.number()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_decl_tyContext>().unwrap().number = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_decl_tyContext<TF::Tok>>().unwrap().number = Some(tmp); } 
 					recog.base.set_state(98);
 					recog.base.match_token(CFood_BRACKET_R,&mut recog.err_handler)?;
 
-					        let name = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Var_decl_tyContext>().unwrap().IDENT { it.get_text() } else { "null" } ;
-					        let kind = recog.ctx().unwrap().as_rule_context::<Var_decl_tyContext>().unwrap().ty_kind.as_ref().unwrap().get_kind();
-					        let num = recog.ctx().unwrap().as_rule_context::<Var_decl_tyContext>().unwrap().number.as_ref().unwrap().get_num();
-					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Var_decl_tyContext>().unwrap().IDENT { it.get_line() } else { 0 } ;
+					        let name = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Var_decl_tyContext<TF::Tok>>().unwrap().IDENT { it.get_text() } else { "null" } ;
+					        let kind = recog.ctx().unwrap().as_rule_context::<Var_decl_tyContext<TF::Tok>>().unwrap().ty_kind.as_ref().unwrap().get_kind();
+					        let num = recog.ctx().unwrap().as_rule_context::<Var_decl_tyContext<TF::Tok>>().unwrap().number.as_ref().unwrap().get_num();
+					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Var_decl_tyContext<TF::Tok>>().unwrap().IDENT { it.get_line() } else { 0 } ;
 
 					        let tmp = { recog.tlt.new_var_arr(
 					            name,
@@ -947,7 +983,7 @@ where
 					            num,
 					            line,
 					        )}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_decl_tyContext>().unwrap().set_ty_id(tmp); }
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_decl_tyContext<TF::Tok>>().unwrap().set_ty_id(tmp); }
 					    
 					}
 				}
@@ -965,71 +1001,84 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- var_decl_init ----------------
-pub type Var_decl_initContextAll<'input, 'arena> = Var_decl_initContext<'input, 'arena>;
+pub type Var_decl_initContextAll<'input, 'arena, Tok = CommonToken<'input>> = Var_decl_initContext<'input, 'arena, Tok>;
 
-pub type Var_decl_initContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Var_decl_initContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Var_decl_initContextExt<'input, 'arena> {
+pub type Var_decl_initContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Var_decl_initContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Var_decl_initContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub ty_id: TyId,
 	pub ASSIGN: Option<&'arena dyn Token >,
-	pub expr: Option<&'arena ExprContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub expr: Option<&'arena ExprContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Var_decl_initContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Var_decl_initContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Var_decl_initContext }
 	fn get_rule_index(&self) -> usize { RULE_var_decl_init }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Var_decl_initContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Var_decl_initContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Var_decl_initContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Var_decl_initContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Var_decl_initContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Var_decl_initContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Var_decl_initContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Var_decl_initContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32, ty_id: TyId) -> Var_decl_initContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Var_decl_initContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32, ty_id: TyId) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_ty_id = Default::default();
 
 		 _init_ty_id = ty_id;
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, Var_decl_initContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Var_decl_initContextExt {
 				ASSIGN: None, 
 				expr: None, 
 				ty_id: _init_ty_id, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Var_decl_initContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Var_decl_initContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_ty_id(&self) -> &TyId; 
     fn set_ty_id(&mut self,attr: TyId); 
     /// Retrieves first TerminalNode corresponding to token ASSIGN
     /// Returns `None` if there is no child corresponding to token ASSIGN
-    fn ASSIGN(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena>>;
+    fn ASSIGN(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Var_decl_initContextAttrs<'input, 'arena> for Var_decl_initContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Var_decl_initContextAttrs<'input, 'arena, Tok> for Var_decl_initContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
@@ -1037,10 +1086,10 @@ where
     fn set_ty_id(&mut self,attr: TyId) { self.deref_mut().ty_id = attr; }  
     /// Retrieves first TerminalNode corresponding to token ASSIGN
     /// Returns `None` if there is no child corresponding to token ASSIGN
-    fn ASSIGN(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_ASSIGN, 0)
+    fn ASSIGN(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_ASSIGN)
     }
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena>> {
+    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -1051,11 +1100,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn var_decl_init(&mut self,ty_id: TyId) -> Result<&'arena Var_decl_initContextAll<'input, 'arena>, ANTLRError> {
+	pub fn var_decl_init(&mut self,ty_id: TyId) -> Result<&'arena Var_decl_initContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Var_decl_initContextExt::create(recog.get_arena(), _parentctx, recog.get_state(), ty_id).into(), 10, RULE_var_decl_init)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Var_decl_initContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Var_decl_initContextExt::create(recog.get_arena(), _parentctx, recog.get_state(), ty_id)?, 10, RULE_var_decl_init)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Var_decl_initContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(108);
 			recog.err_handler.sync(&mut recog.base)?;
@@ -1066,15 +1116,15 @@ where
 			        {
 			        recog.base.set_state(103);
 			        let tmp = recog.base.match_token(CFood_ASSIGN,&mut recog.err_handler)?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_decl_initContext>().unwrap().ASSIGN = Some(tmp); } 
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_decl_initContext<TF::Tok>>().unwrap().ASSIGN = Some(tmp); } 
 			        /*InvokeRule expr*/
 			        recog.base.set_state(104);
 			        let tmp = recog.expr()?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_decl_initContext>().unwrap().expr = Some(tmp); } 
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Var_decl_initContext<TF::Tok>>().unwrap().expr = Some(tmp); } 
 
-			                let bound = *recog.ctx().unwrap().as_rule_context::<Var_decl_initContext>().unwrap().get_ty_id();
-			                let expr = *recog.ctx().unwrap().as_rule_context::<Var_decl_initContext>().unwrap().expr.as_ref().unwrap().get_ty_id();
-			                let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Var_decl_initContext>().unwrap().ASSIGN { it.get_line() } else { 0 } ;
+			                let bound = *recog.ctx().unwrap().as_rule_context::<Var_decl_initContext<TF::Tok>>().unwrap().get_ty_id();
+			                let expr = *recog.ctx().unwrap().as_rule_context::<Var_decl_initContext<TF::Tok>>().unwrap().expr.as_ref().unwrap().get_ty_id();
+			                let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Var_decl_initContext<TF::Tok>>().unwrap().ASSIGN { it.get_line() } else { 0 } ;
 			                recog.tlt.assert_ty_id(bound, expr, line);
 			            
 			        }}
@@ -1096,89 +1146,102 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- fn_decl ----------------
-pub type Fn_declContextAll<'input, 'arena> = Fn_declContext<'input, 'arena>;
+pub type Fn_declContextAll<'input, 'arena, Tok = CommonToken<'input>> = Fn_declContext<'input, 'arena, Tok>;
 
-pub type Fn_declContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Fn_declContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Fn_declContextExt<'input, 'arena> {
+pub type Fn_declContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Fn_declContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Fn_declContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub ty_id: TyId,
-	pub ty: Option<&'arena TyContextAll<'input, 'arena>>,
+	pub ty: Option<&'arena TyContextAll<'input, 'arena, Tok>>,
 	pub IDENT: Option<&'arena dyn Token >,
-	pub params: Option<&'arena ParamsContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub params: Option<&'arena ParamsContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Fn_declContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Fn_declContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Fn_declContext }
 	fn get_rule_index(&self) -> usize { RULE_fn_decl }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Fn_declContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Fn_declContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Fn_declContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Fn_declContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Fn_declContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Fn_declContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Fn_declContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Fn_declContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Fn_declContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Fn_declContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_ty_id = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, Fn_declContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Fn_declContextExt {
 				IDENT: None, 
 				ty: None, params: None, 
 				ty_id: _init_ty_id, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Fn_declContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Fn_declContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_ty_id(&self) -> &TyId; 
     fn set_ty_id(&mut self,attr: TyId); 
-    fn ty(&self) -> Option<&'arena TyContextAll<'input, 'arena>>;
+    fn ty(&self) -> Option<&'arena TyContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token IDENT
     /// Returns `None` if there is no child corresponding to token IDENT
-    fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn params(&self) -> Option<&'arena ParamsContextAll<'input, 'arena>>;
-    fn block(&self) -> Option<&'arena BlockContextAll<'input, 'arena>>;
+    fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn params(&self) -> Option<&'arena ParamsContextAll<'input, 'arena, Tok>>;
+    fn block(&self) -> Option<&'arena BlockContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Fn_declContextAttrs<'input, 'arena> for Fn_declContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Fn_declContextAttrs<'input, 'arena, Tok> for Fn_declContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     fn get_ty_id(&self) -> &TyId { &self.deref().ty_id }  
     fn set_ty_id(&mut self,attr: TyId) { self.deref_mut().ty_id = attr; }  
-    fn ty(&self) -> Option<&'arena TyContextAll<'input, 'arena>> {
+    fn ty(&self) -> Option<&'arena TyContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token IDENT
     /// Returns `None` if there is no child corresponding to token IDENT
-    fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_IDENT, 0)
+    fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_IDENT)
     }
-    fn params(&self) -> Option<&'arena ParamsContextAll<'input, 'arena>> {
+    fn params(&self) -> Option<&'arena ParamsContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn block(&self) -> Option<&'arena BlockContextAll<'input, 'arena>> {
+    fn block(&self) -> Option<&'arena BlockContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -1189,11 +1252,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn fn_decl(&mut self,) -> Result<&'arena Fn_declContextAll<'input, 'arena>, ANTLRError> {
+	pub fn fn_decl(&mut self,) -> Result<&'arena Fn_declContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Fn_declContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 12, RULE_fn_decl)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Fn_declContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Fn_declContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 12, RULE_fn_decl)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Fn_declContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			/*------- Outer Most Alt 1 -------*/
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -1201,24 +1265,24 @@ where
 			/*InvokeRule ty*/
 			recog.base.set_state(110);
 			let tmp = recog.ty()?;
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Fn_declContext>().unwrap().ty = Some(tmp); } 
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Fn_declContext<TF::Tok>>().unwrap().ty = Some(tmp); } 
 			recog.base.set_state(111);
 			let tmp = recog.base.match_token(CFood_IDENT,&mut recog.err_handler)?;
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Fn_declContext>().unwrap().IDENT = Some(tmp); } 
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Fn_declContext<TF::Tok>>().unwrap().IDENT = Some(tmp); } 
 
 			        recog.tlt.enter_block();
 			    
 			/*InvokeRule params*/
 			recog.base.set_state(113);
 			let tmp = recog.params()?;
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Fn_declContext>().unwrap().params = Some(tmp); } 
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Fn_declContext<TF::Tok>>().unwrap().params = Some(tmp); } 
 
-			        let name = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Fn_declContext>().unwrap().IDENT { it.get_text() } else { "null" } ;
-			        let ty_raw = recog.ctx().unwrap().as_rule_context::<Fn_declContext>().unwrap().ty.as_ref().unwrap().get_ty_raw();
-			        let ty_ids = recog.ctx().unwrap().as_rule_context::<Fn_declContext>().unwrap().params.as_ref().unwrap().get_ty_ids();
-			        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Fn_declContext>().unwrap().IDENT { it.get_line() } else { 0 } ;
+			        let name = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Fn_declContext<TF::Tok>>().unwrap().IDENT { it.get_text() } else { "null" } ;
+			        let ty_raw = recog.ctx().unwrap().as_rule_context::<Fn_declContext<TF::Tok>>().unwrap().ty.as_ref().unwrap().get_ty_raw();
+			        let ty_ids = recog.ctx().unwrap().as_rule_context::<Fn_declContext<TF::Tok>>().unwrap().params.as_ref().unwrap().get_ty_ids();
+			        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Fn_declContext<TF::Tok>>().unwrap().IDENT { it.get_line() } else { 0 } ;
 			        let tmp = { recog.tlt.new_fn(name, ty_raw, ty_ids, line)}.to_owned();
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Fn_declContext>().unwrap().set_ty_id(tmp); }
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Fn_declContext<TF::Tok>>().unwrap().set_ty_id(tmp); }
 			    
 			/*InvokeRule block*/
 			recog.base.set_state(115);
@@ -1238,113 +1302,126 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- ty_decl ----------------
-pub type Ty_declContextAll<'input, 'arena> = Ty_declContext<'input, 'arena>;
+pub type Ty_declContextAll<'input, 'arena, Tok = CommonToken<'input>> = Ty_declContext<'input, 'arena, Tok>;
 
-pub type Ty_declContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Ty_declContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Ty_declContextExt<'input, 'arena> {
+pub type Ty_declContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Ty_declContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Ty_declContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub TYPE: Option<&'arena dyn Token >,
-	pub tys: Option<&'arena TysContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub tys: Option<&'arena TysContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Ty_declContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Ty_declContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Ty_declContext }
 	fn get_rule_index(&self) -> usize { RULE_ty_decl }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Ty_declContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Ty_declContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Ty_declContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Ty_declContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Ty_declContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Ty_declContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Ty_declContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Ty_declContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Ty_declContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Ty_declContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
-        BaseParserRuleContext::new(arena, parent, invoking_state, Ty_declContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Ty_declContextExt {
 				TYPE: None, 
 				tys: None, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Ty_declContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Ty_declContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     /// Retrieves first TerminalNode corresponding to token KW_type
     /// Returns `None` if there is no child corresponding to token KW_type
-    fn KW_type(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn KW_type(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token TYPE
     /// Returns `None` if there is no child corresponding to token TYPE
-    fn TYPE(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn TYPE(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token ASSIGN
     /// Returns `None` if there is no child corresponding to token ASSIGN
-    fn ASSIGN(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn ASSIGN(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token PAREN_L
     /// Returns `None` if there is no child corresponding to token PAREN_L
-    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn tys(&self) -> Option<&'arena TysContextAll<'input, 'arena>>;
+    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn tys(&self) -> Option<&'arena TysContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token PAREN_R
     /// Returns `None` if there is no child corresponding to token PAREN_R
-    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token SEMICOLON
     /// Returns `None` if there is no child corresponding to token SEMICOLON
-    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Ty_declContextAttrs<'input, 'arena> for Ty_declContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Ty_declContextAttrs<'input, 'arena, Tok> for Ty_declContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     /// Retrieves first TerminalNode corresponding to token KW_type
     /// Returns `None` if there is no child corresponding to token KW_type
-    fn KW_type(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_KW_type, 0)
+    fn KW_type(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_KW_type)
     }
     /// Retrieves first TerminalNode corresponding to token TYPE
     /// Returns `None` if there is no child corresponding to token TYPE
-    fn TYPE(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_TYPE, 0)
+    fn TYPE(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_TYPE)
     }
     /// Retrieves first TerminalNode corresponding to token ASSIGN
     /// Returns `None` if there is no child corresponding to token ASSIGN
-    fn ASSIGN(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_ASSIGN, 0)
+    fn ASSIGN(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_ASSIGN)
     }
     /// Retrieves first TerminalNode corresponding to token PAREN_L
     /// Returns `None` if there is no child corresponding to token PAREN_L
-    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_PAREN_L, 0)
+    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_PAREN_L)
     }
-    fn tys(&self) -> Option<&'arena TysContextAll<'input, 'arena>> {
+    fn tys(&self) -> Option<&'arena TysContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token PAREN_R
     /// Returns `None` if there is no child corresponding to token PAREN_R
-    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_PAREN_R, 0)
+    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_PAREN_R)
     }
     /// Retrieves first TerminalNode corresponding to token SEMICOLON
     /// Returns `None` if there is no child corresponding to token SEMICOLON
-    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_SEMICOLON, 0)
+    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_SEMICOLON)
     }
 }
 
@@ -1354,11 +1431,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn ty_decl(&mut self,) -> Result<&'arena Ty_declContextAll<'input, 'arena>, ANTLRError> {
+	pub fn ty_decl(&mut self,) -> Result<&'arena Ty_declContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Ty_declContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 14, RULE_ty_decl)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Ty_declContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Ty_declContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 14, RULE_ty_decl)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Ty_declContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			/*------- Outer Most Alt 1 -------*/
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -1367,7 +1445,7 @@ where
 			recog.base.match_token(CFood_KW_type,&mut recog.err_handler)?;
 			recog.base.set_state(119);
 			let tmp = recog.base.match_token(CFood_TYPE,&mut recog.err_handler)?;
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Ty_declContext>().unwrap().TYPE = Some(tmp); } 
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Ty_declContext<TF::Tok>>().unwrap().TYPE = Some(tmp); } 
 			recog.base.set_state(120);
 			recog.base.match_token(CFood_ASSIGN,&mut recog.err_handler)?;
 			recog.base.set_state(121);
@@ -1375,15 +1453,15 @@ where
 			/*InvokeRule tys*/
 			recog.base.set_state(122);
 			let tmp = recog.tys()?;
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Ty_declContext>().unwrap().tys = Some(tmp); } 
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Ty_declContext<TF::Tok>>().unwrap().tys = Some(tmp); } 
 			recog.base.set_state(123);
 			recog.base.match_token(CFood_PAREN_R,&mut recog.err_handler)?;
 			recog.base.set_state(124);
 			recog.base.match_token(CFood_SEMICOLON,&mut recog.err_handler)?;
 
-			        let name = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Ty_declContext>().unwrap().TYPE { it.get_text() } else { "null" } .to_owned();
-			        let kinds = recog.ctx().unwrap().as_rule_context::<Ty_declContext>().unwrap().tys.as_ref().unwrap().get_kinds();
-			        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Ty_declContext>().unwrap().TYPE { it.get_line() } else { 0 } ;
+			        let name = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Ty_declContext<TF::Tok>>().unwrap().TYPE { it.get_text() } else { "null" } .to_owned();
+			        let kinds = recog.ctx().unwrap().as_rule_context::<Ty_declContext<TF::Tok>>().unwrap().tys.as_ref().unwrap().get_kinds();
+			        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Ty_declContext<TF::Tok>>().unwrap().TYPE { it.get_line() } else { 0 } ;
 			        recog.tlt.new_alias(
 			            name,
 			            kinds,
@@ -1402,73 +1480,86 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- params ----------------
-pub type ParamsContextAll<'input, 'arena> = ParamsContext<'input, 'arena>;
+pub type ParamsContextAll<'input, 'arena, Tok = CommonToken<'input>> = ParamsContext<'input, 'arena, Tok>;
 
-pub type ParamsContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, ParamsContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct ParamsContextExt<'input, 'arena> {
+pub type ParamsContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, ParamsContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct ParamsContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub ty_ids: Vec<TyId>,
-	pub param_list: Option<&'arena Param_listContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub param_list: Option<&'arena Param_listContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for ParamsContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for ParamsContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::ParamsContext }
 	fn get_rule_index(&self) -> usize { RULE_params }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::ParamsContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: ParamsContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a ParamsContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => ParamsContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::ParamsContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut ParamsContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut ParamsContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> ParamsContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> ParamsContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> ParamsContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_ty_ids = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, ParamsContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, ParamsContextExt {
 				param_list: None, 
 				ty_ids: _init_ty_ids, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait ParamsContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait ParamsContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_ty_ids(&self) -> &Vec<TyId>; 
     fn set_ty_ids(&mut self,attr: Vec<TyId>); 
     /// Retrieves first TerminalNode corresponding to token PAREN_L
     /// Returns `None` if there is no child corresponding to token PAREN_L
-    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn param_list(&self) -> Option<&'arena Param_listContextAll<'input, 'arena>>;
+    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn param_list(&self) -> Option<&'arena Param_listContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token PAREN_R
     /// Returns `None` if there is no child corresponding to token PAREN_R
-    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token TY_void
     /// Returns `None` if there is no child corresponding to token TY_void
-    fn TY_void(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn TY_void(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> ParamsContextAttrs<'input, 'arena> for ParamsContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> ParamsContextAttrs<'input, 'arena, Tok> for ParamsContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
@@ -1476,21 +1567,21 @@ where
     fn set_ty_ids(&mut self,attr: Vec<TyId>) { self.deref_mut().ty_ids = attr; }  
     /// Retrieves first TerminalNode corresponding to token PAREN_L
     /// Returns `None` if there is no child corresponding to token PAREN_L
-    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_PAREN_L, 0)
+    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_PAREN_L)
     }
-    fn param_list(&self) -> Option<&'arena Param_listContextAll<'input, 'arena>> {
+    fn param_list(&self) -> Option<&'arena Param_listContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token PAREN_R
     /// Returns `None` if there is no child corresponding to token PAREN_R
-    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_PAREN_R, 0)
+    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_PAREN_R)
     }
     /// Retrieves first TerminalNode corresponding to token TY_void
     /// Returns `None` if there is no child corresponding to token TY_void
-    fn TY_void(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_TY_void, 0)
+    fn TY_void(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_TY_void)
     }
 }
 
@@ -1500,15 +1591,16 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn params(&mut self,) -> Result<&'arena ParamsContextAll<'input, 'arena>, ANTLRError> {
+	pub fn params(&mut self,) -> Result<&'arena ParamsContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(ParamsContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 16, RULE_params)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena ParamsContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(ParamsContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 16, RULE_params)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena ParamsContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(139);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.interpreter.adaptive_predict(4,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(4,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -1518,12 +1610,12 @@ where
 					/*InvokeRule param_list*/
 					recog.base.set_state(128);
 					let tmp = recog.param_list()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ParamsContext>().unwrap().param_list = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ParamsContext<TF::Tok>>().unwrap().param_list = Some(tmp); } 
 					recog.base.set_state(129);
 					recog.base.match_token(CFood_PAREN_R,&mut recog.err_handler)?;
 
-					        let tmp = { recog.ctx().unwrap().as_rule_context::<ParamsContext>().unwrap().param_list.as_ref().unwrap().get_ty_ids()}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ParamsContext>().unwrap().set_ty_ids(tmp); }
+					        let tmp = { recog.ctx().unwrap().as_rule_context::<ParamsContext<TF::Tok>>().unwrap().param_list.as_ref().unwrap().get_ty_ids()}.to_owned();
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ParamsContext<TF::Tok>>().unwrap().set_ty_ids(tmp); }
 					    
 					}
 				}
@@ -1539,7 +1631,7 @@ where
 					recog.base.set_state(134);
 					recog.base.match_token(CFood_PAREN_R,&mut recog.err_handler)?;
 					let tmp = { vec![]}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ParamsContext>().unwrap().set_ty_ids(tmp); }
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ParamsContext<TF::Tok>>().unwrap().set_ty_ids(tmp); }
 					}
 				}
 			,
@@ -1552,7 +1644,7 @@ where
 					recog.base.set_state(137);
 					recog.base.match_token(CFood_PAREN_R,&mut recog.err_handler)?;
 					let tmp = { vec![]}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ParamsContext>().unwrap().set_ty_ids(tmp); }
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ParamsContext<TF::Tok>>().unwrap().set_ty_ids(tmp); }
 					}
 				}
 
@@ -1569,83 +1661,96 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- param_list ----------------
-pub type Param_listContextAll<'input, 'arena> = Param_listContext<'input, 'arena>;
+pub type Param_listContextAll<'input, 'arena, Tok = CommonToken<'input>> = Param_listContext<'input, 'arena, Tok>;
 
-pub type Param_listContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Param_listContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Param_listContextExt<'input, 'arena> {
+pub type Param_listContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Param_listContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Param_listContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub ty_ids: Vec<TyId>,
-	pub param: Option<&'arena ParamContextAll<'input, 'arena>>,
-	pub param_list: Option<&'arena Param_listContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub param: Option<&'arena ParamContextAll<'input, 'arena, Tok>>,
+	pub param_list: Option<&'arena Param_listContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Param_listContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Param_listContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Param_listContext }
 	fn get_rule_index(&self) -> usize { RULE_param_list }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Param_listContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Param_listContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Param_listContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Param_listContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Param_listContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Param_listContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Param_listContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Param_listContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Param_listContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Param_listContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_ty_ids = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, Param_listContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Param_listContextExt {
 				param: None, param_list: None, 
 				ty_ids: _init_ty_ids, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Param_listContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Param_listContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_ty_ids(&self) -> &Vec<TyId>; 
     fn set_ty_ids(&mut self,attr: Vec<TyId>); 
-    fn param(&self) -> Option<&'arena ParamContextAll<'input, 'arena>>;
+    fn param(&self) -> Option<&'arena ParamContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token COMMA
     /// Returns `None` if there is no child corresponding to token COMMA
-    fn COMMA(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn param_list(&self) -> Option<&'arena Param_listContextAll<'input, 'arena>>;
+    fn COMMA(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn param_list(&self) -> Option<&'arena Param_listContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Param_listContextAttrs<'input, 'arena> for Param_listContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Param_listContextAttrs<'input, 'arena, Tok> for Param_listContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     fn get_ty_ids(&self) -> &Vec<TyId> { &self.deref().ty_ids }  
     fn set_ty_ids(&mut self,attr: Vec<TyId>) { self.deref_mut().ty_ids = attr; }  
-    fn param(&self) -> Option<&'arena ParamContextAll<'input, 'arena>> {
+    fn param(&self) -> Option<&'arena ParamContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token COMMA
     /// Returns `None` if there is no child corresponding to token COMMA
-    fn COMMA(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_COMMA, 0)
+    fn COMMA(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_COMMA)
     }
-    fn param_list(&self) -> Option<&'arena Param_listContextAll<'input, 'arena>> {
+    fn param_list(&self) -> Option<&'arena Param_listContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -1656,15 +1761,16 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn param_list(&mut self,) -> Result<&'arena Param_listContextAll<'input, 'arena>, ANTLRError> {
+	pub fn param_list(&mut self,) -> Result<&'arena Param_listContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Param_listContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 18, RULE_param_list)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Param_listContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Param_listContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 18, RULE_param_list)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Param_listContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(149);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.interpreter.adaptive_predict(5,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(5,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -1672,16 +1778,16 @@ where
 					/*InvokeRule param*/
 					recog.base.set_state(141);
 					let tmp = recog.param()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Param_listContext>().unwrap().param = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Param_listContext<TF::Tok>>().unwrap().param = Some(tmp); } 
 					recog.base.set_state(142);
 					recog.base.match_token(CFood_COMMA,&mut recog.err_handler)?;
 					/*InvokeRule param_list*/
 					recog.base.set_state(143);
 					let tmp = recog.param_list()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Param_listContext>().unwrap().param_list = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Param_listContext<TF::Tok>>().unwrap().param_list = Some(tmp); } 
 
-					        let tmp = { [vec![*recog.ctx().unwrap().as_rule_context::<Param_listContext>().unwrap().param.as_ref().unwrap().get_ty_id()], recog.ctx().unwrap().as_rule_context::<Param_listContext>().unwrap().param_list.as_ref().unwrap().get_ty_ids().to_owned()].concat()}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Param_listContext>().unwrap().set_ty_ids(tmp); }
+					        let tmp = { [vec![*recog.ctx().unwrap().as_rule_context::<Param_listContext<TF::Tok>>().unwrap().param.as_ref().unwrap().get_ty_id()], recog.ctx().unwrap().as_rule_context::<Param_listContext<TF::Tok>>().unwrap().param_list.as_ref().unwrap().get_ty_ids().to_owned()].concat()}.to_owned();
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Param_listContext<TF::Tok>>().unwrap().set_ty_ids(tmp); }
 					    
 					}
 				}
@@ -1693,10 +1799,10 @@ where
 					/*InvokeRule param*/
 					recog.base.set_state(146);
 					let tmp = recog.param()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Param_listContext>().unwrap().param = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Param_listContext<TF::Tok>>().unwrap().param = Some(tmp); } 
 
-					        let tmp = { vec![*recog.ctx().unwrap().as_rule_context::<Param_listContext>().unwrap().param.as_ref().unwrap().get_ty_id()]}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Param_listContext>().unwrap().set_ty_ids(tmp); }
+					        let tmp = { vec![*recog.ctx().unwrap().as_rule_context::<Param_listContext<TF::Tok>>().unwrap().param.as_ref().unwrap().get_ty_id()]}.to_owned();
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Param_listContext<TF::Tok>>().unwrap().set_ty_ids(tmp); }
 					    
 					}
 				}
@@ -1714,70 +1820,83 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- param ----------------
-pub type ParamContextAll<'input, 'arena> = ParamContext<'input, 'arena>;
+pub type ParamContextAll<'input, 'arena, Tok = CommonToken<'input>> = ParamContext<'input, 'arena, Tok>;
 
-pub type ParamContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, ParamContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct ParamContextExt<'input, 'arena> {
+pub type ParamContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, ParamContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct ParamContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub ty_id: TyId,
-	pub var_decl_ty: Option<&'arena Var_decl_tyContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub var_decl_ty: Option<&'arena Var_decl_tyContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for ParamContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for ParamContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::ParamContext }
 	fn get_rule_index(&self) -> usize { RULE_param }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::ParamContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: ParamContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a ParamContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => ParamContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::ParamContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut ParamContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut ParamContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> ParamContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> ParamContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> ParamContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_ty_id = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, ParamContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, ParamContextExt {
 				var_decl_ty: None, 
 				ty_id: _init_ty_id, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait ParamContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait ParamContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_ty_id(&self) -> &TyId; 
     fn set_ty_id(&mut self,attr: TyId); 
-    fn var_decl_ty(&self) -> Option<&'arena Var_decl_tyContextAll<'input, 'arena>>;
+    fn var_decl_ty(&self) -> Option<&'arena Var_decl_tyContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> ParamContextAttrs<'input, 'arena> for ParamContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> ParamContextAttrs<'input, 'arena, Tok> for ParamContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     fn get_ty_id(&self) -> &TyId { &self.deref().ty_id }  
     fn set_ty_id(&mut self,attr: TyId) { self.deref_mut().ty_id = attr; }  
-    fn var_decl_ty(&self) -> Option<&'arena Var_decl_tyContextAll<'input, 'arena>> {
+    fn var_decl_ty(&self) -> Option<&'arena Var_decl_tyContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -1788,11 +1907,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn param(&mut self,) -> Result<&'arena ParamContextAll<'input, 'arena>, ANTLRError> {
+	pub fn param(&mut self,) -> Result<&'arena ParamContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(ParamContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 20, RULE_param)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena ParamContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(ParamContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 20, RULE_param)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena ParamContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			/*------- Outer Most Alt 1 -------*/
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -1800,9 +1920,9 @@ where
 			/*InvokeRule var_decl_ty*/
 			recog.base.set_state(151);
 			let tmp = recog.var_decl_ty()?;
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ParamContext>().unwrap().var_decl_ty = Some(tmp); } 
-			let tmp = { recog.ctx().unwrap().as_rule_context::<ParamContext>().unwrap().var_decl_ty.as_ref().unwrap().get_ty_id()}.to_owned();
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ParamContext>().unwrap().set_ty_id(tmp); }
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ParamContext<TF::Tok>>().unwrap().var_decl_ty = Some(tmp); } 
+			let tmp = { recog.ctx().unwrap().as_rule_context::<ParamContext<TF::Tok>>().unwrap().var_decl_ty.as_ref().unwrap().get_ty_id()}.to_owned();
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ParamContext<TF::Tok>>().unwrap().set_ty_id(tmp); }
 			}
 			Ok(())
 		})();
@@ -1815,70 +1935,83 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- number ----------------
-pub type NumberContextAll<'input, 'arena> = NumberContext<'input, 'arena>;
+pub type NumberContextAll<'input, 'arena, Tok = CommonToken<'input>> = NumberContext<'input, 'arena, Tok>;
 
-pub type NumberContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, NumberContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct NumberContextExt<'input, 'arena> {
+pub type NumberContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, NumberContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct NumberContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub num: Number,
 	pub INT: Option<&'arena dyn Token >,
 	pub FLOAT: Option<&'arena dyn Token >,
-    ph: PhantomData<(&'arena (), &'input ())>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for NumberContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for NumberContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::NumberContext }
 	fn get_rule_index(&self) -> usize { RULE_number }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::NumberContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: NumberContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a NumberContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => NumberContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::NumberContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut NumberContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut NumberContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> NumberContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> NumberContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> NumberContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_num = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, NumberContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, NumberContextExt {
 				INT: None, FLOAT: None, 
 				num: _init_num, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait NumberContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait NumberContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_num(&self) -> &Number; 
     fn set_num(&mut self,attr: Number); 
     /// Retrieves first TerminalNode corresponding to token INT
     /// Returns `None` if there is no child corresponding to token INT
-    fn INT(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn INT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token FLOAT
     /// Returns `None` if there is no child corresponding to token FLOAT
-    fn FLOAT(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn FLOAT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> NumberContextAttrs<'input, 'arena> for NumberContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> NumberContextAttrs<'input, 'arena, Tok> for NumberContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
@@ -1886,13 +2019,13 @@ where
     fn set_num(&mut self,attr: Number) { self.deref_mut().num = attr; }  
     /// Retrieves first TerminalNode corresponding to token INT
     /// Returns `None` if there is no child corresponding to token INT
-    fn INT(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_INT, 0)
+    fn INT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_INT)
     }
     /// Retrieves first TerminalNode corresponding to token FLOAT
     /// Returns `None` if there is no child corresponding to token FLOAT
-    fn FLOAT(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_FLOAT, 0)
+    fn FLOAT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_FLOAT)
     }
 }
 
@@ -1902,11 +2035,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn number(&mut self,) -> Result<&'arena NumberContextAll<'input, 'arena>, ANTLRError> {
+	pub fn number(&mut self,) -> Result<&'arena NumberContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(NumberContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 22, RULE_number)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena NumberContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(NumberContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 22, RULE_number)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena NumberContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(158);
 			recog.err_handler.sync(&mut recog.base)?;
@@ -1917,9 +2051,9 @@ where
 			        {
 			        recog.base.set_state(154);
 			        let tmp = recog.base.match_token(CFood_INT,&mut recog.err_handler)?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<NumberContext>().unwrap().INT = Some(tmp); } 
-			        let tmp = { Number::parse_int(if let Some(it) = &recog.ctx().unwrap().as_rule_context::<NumberContext>().unwrap().INT { it.get_text() } else { "null" } )}.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<NumberContext>().unwrap().set_num(tmp); }
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<NumberContext<TF::Tok>>().unwrap().INT = Some(tmp); } 
+			        let tmp = { Number::parse_int(if let Some(it) = &recog.ctx().unwrap().as_rule_context::<NumberContext<TF::Tok>>().unwrap().INT { it.get_text() } else { "null" } )}.to_owned();
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<NumberContext<TF::Tok>>().unwrap().set_num(tmp); }
 			        }}
 			    CFood_FLOAT  => {
 			        /*------- Outer Most Alt 2 -------*/
@@ -1927,9 +2061,9 @@ where
 			        {
 			        recog.base.set_state(156);
 			        let tmp = recog.base.match_token(CFood_FLOAT,&mut recog.err_handler)?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<NumberContext>().unwrap().FLOAT = Some(tmp); } 
-			        let tmp = { Number::parse_float(if let Some(it) = &recog.ctx().unwrap().as_rule_context::<NumberContext>().unwrap().FLOAT { it.get_text() } else { "null" } )}.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<NumberContext>().unwrap().set_num(tmp); }
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<NumberContext<TF::Tok>>().unwrap().FLOAT = Some(tmp); } 
+			        let tmp = { Number::parse_float(if let Some(it) = &recog.ctx().unwrap().as_rule_context::<NumberContext<TF::Tok>>().unwrap().FLOAT { it.get_text() } else { "null" } )}.to_owned();
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<NumberContext<TF::Tok>>().unwrap().set_num(tmp); }
 			        }}
 				_ => Err(ANTLRError::no_alt(&mut recog.base))?
 			}
@@ -1944,83 +2078,96 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- tys ----------------
-pub type TysContextAll<'input, 'arena> = TysContext<'input, 'arena>;
+pub type TysContextAll<'input, 'arena, Tok = CommonToken<'input>> = TysContext<'input, 'arena, Tok>;
 
-pub type TysContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, TysContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct TysContextExt<'input, 'arena> {
+pub type TysContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, TysContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct TysContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub kinds: Vec<TyKind>,
-	pub ty_kind: Option<&'arena Ty_kindContextAll<'input, 'arena>>,
-	pub tys: Option<&'arena TysContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub ty_kind: Option<&'arena Ty_kindContextAll<'input, 'arena, Tok>>,
+	pub tys: Option<&'arena TysContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for TysContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for TysContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::TysContext }
 	fn get_rule_index(&self) -> usize { RULE_tys }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::TysContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: TysContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a TysContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => TysContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::TysContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut TysContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut TysContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> TysContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> TysContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> TysContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_kinds = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, TysContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, TysContextExt {
 				ty_kind: None, tys: None, 
 				kinds: _init_kinds, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait TysContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait TysContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_kinds(&self) -> &Vec<TyKind>; 
     fn set_kinds(&mut self,attr: Vec<TyKind>); 
-    fn ty_kind(&self) -> Option<&'arena Ty_kindContextAll<'input, 'arena>>;
+    fn ty_kind(&self) -> Option<&'arena Ty_kindContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token COMMA
     /// Returns `None` if there is no child corresponding to token COMMA
-    fn COMMA(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn tys(&self) -> Option<&'arena TysContextAll<'input, 'arena>>;
+    fn COMMA(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn tys(&self) -> Option<&'arena TysContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> TysContextAttrs<'input, 'arena> for TysContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> TysContextAttrs<'input, 'arena, Tok> for TysContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     fn get_kinds(&self) -> &Vec<TyKind> { &self.deref().kinds }  
     fn set_kinds(&mut self,attr: Vec<TyKind>) { self.deref_mut().kinds = attr; }  
-    fn ty_kind(&self) -> Option<&'arena Ty_kindContextAll<'input, 'arena>> {
+    fn ty_kind(&self) -> Option<&'arena Ty_kindContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token COMMA
     /// Returns `None` if there is no child corresponding to token COMMA
-    fn COMMA(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_COMMA, 0)
+    fn COMMA(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_COMMA)
     }
-    fn tys(&self) -> Option<&'arena TysContextAll<'input, 'arena>> {
+    fn tys(&self) -> Option<&'arena TysContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -2031,15 +2178,16 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn tys(&mut self,) -> Result<&'arena TysContextAll<'input, 'arena>, ANTLRError> {
+	pub fn tys(&mut self,) -> Result<&'arena TysContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(TysContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 24, RULE_tys)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena TysContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(TysContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 24, RULE_tys)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena TysContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(168);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.interpreter.adaptive_predict(7,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(7,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -2047,16 +2195,16 @@ where
 					/*InvokeRule ty_kind*/
 					recog.base.set_state(160);
 					let tmp = recog.ty_kind()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TysContext>().unwrap().ty_kind = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TysContext<TF::Tok>>().unwrap().ty_kind = Some(tmp); } 
 					recog.base.set_state(161);
 					recog.base.match_token(CFood_COMMA,&mut recog.err_handler)?;
 					/*InvokeRule tys*/
 					recog.base.set_state(162);
 					let tmp = recog.tys()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TysContext>().unwrap().tys = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TysContext<TF::Tok>>().unwrap().tys = Some(tmp); } 
 
-					        let tmp = { [vec![recog.ctx().unwrap().as_rule_context::<TysContext>().unwrap().ty_kind.as_ref().unwrap().get_kind().clone()], recog.ctx().unwrap().as_rule_context::<TysContext>().unwrap().tys.as_ref().unwrap().get_kinds().clone()].concat()}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TysContext>().unwrap().set_kinds(tmp); }
+					        let tmp = { [vec![recog.ctx().unwrap().as_rule_context::<TysContext<TF::Tok>>().unwrap().ty_kind.as_ref().unwrap().get_kind().clone()], recog.ctx().unwrap().as_rule_context::<TysContext<TF::Tok>>().unwrap().tys.as_ref().unwrap().get_kinds().clone()].concat()}.to_owned();
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TysContext<TF::Tok>>().unwrap().set_kinds(tmp); }
 					    
 					}
 				}
@@ -2068,10 +2216,10 @@ where
 					/*InvokeRule ty_kind*/
 					recog.base.set_state(165);
 					let tmp = recog.ty_kind()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TysContext>().unwrap().ty_kind = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TysContext<TF::Tok>>().unwrap().ty_kind = Some(tmp); } 
 
-					        let tmp = { vec![recog.ctx().unwrap().as_rule_context::<TysContext>().unwrap().ty_kind.as_ref().unwrap().get_kind().clone()]}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TysContext>().unwrap().set_kinds(tmp); }
+					        let tmp = { vec![recog.ctx().unwrap().as_rule_context::<TysContext<TF::Tok>>().unwrap().ty_kind.as_ref().unwrap().get_kind().clone()]}.to_owned();
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TysContext<TF::Tok>>().unwrap().set_kinds(tmp); }
 					    
 					}
 				}
@@ -2089,83 +2237,96 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- ty ----------------
-pub type TyContextAll<'input, 'arena> = TyContext<'input, 'arena>;
+pub type TyContextAll<'input, 'arena, Tok = CommonToken<'input>> = TyContext<'input, 'arena, Tok>;
 
-pub type TyContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, TyContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct TyContextExt<'input, 'arena> {
+pub type TyContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, TyContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct TyContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub ty_raw: TyRaw,
-	pub ty_kind: Option<&'arena Ty_kindContextAll<'input, 'arena>>,
-	pub ty: Option<&'arena TyContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub ty_kind: Option<&'arena Ty_kindContextAll<'input, 'arena, Tok>>,
+	pub ty: Option<&'arena TyContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for TyContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for TyContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::TyContext }
 	fn get_rule_index(&self) -> usize { RULE_ty }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::TyContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: TyContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a TyContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => TyContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::TyContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut TyContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut TyContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> TyContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> TyContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> TyContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_ty_raw = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, TyContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, TyContextExt {
 				ty_kind: None, ty: None, 
 				ty_raw: _init_ty_raw, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait TyContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait TyContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_ty_raw(&self) -> &TyRaw; 
     fn set_ty_raw(&mut self,attr: TyRaw); 
-    fn ty_kind(&self) -> Option<&'arena Ty_kindContextAll<'input, 'arena>>;
+    fn ty_kind(&self) -> Option<&'arena Ty_kindContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token ARROW
     /// Returns `None` if there is no child corresponding to token ARROW
-    fn ARROW(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn ty(&self) -> Option<&'arena TyContextAll<'input, 'arena>>;
+    fn ARROW(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn ty(&self) -> Option<&'arena TyContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> TyContextAttrs<'input, 'arena> for TyContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> TyContextAttrs<'input, 'arena, Tok> for TyContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     fn get_ty_raw(&self) -> &TyRaw { &self.deref().ty_raw }  
     fn set_ty_raw(&mut self,attr: TyRaw) { self.deref_mut().ty_raw = attr; }  
-    fn ty_kind(&self) -> Option<&'arena Ty_kindContextAll<'input, 'arena>> {
+    fn ty_kind(&self) -> Option<&'arena Ty_kindContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token ARROW
     /// Returns `None` if there is no child corresponding to token ARROW
-    fn ARROW(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_ARROW, 0)
+    fn ARROW(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_ARROW)
     }
-    fn ty(&self) -> Option<&'arena TyContextAll<'input, 'arena>> {
+    fn ty(&self) -> Option<&'arena TyContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -2176,15 +2337,16 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn ty(&mut self,) -> Result<&'arena TyContextAll<'input, 'arena>, ANTLRError> {
+	pub fn ty(&mut self,) -> Result<&'arena TyContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(TyContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 26, RULE_ty)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena TyContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(TyContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 26, RULE_ty)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena TyContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(178);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.interpreter.adaptive_predict(8,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(8,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -2192,9 +2354,9 @@ where
 					/*InvokeRule ty_kind*/
 					recog.base.set_state(170);
 					let tmp = recog.ty_kind()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TyContext>().unwrap().ty_kind = Some(tmp); } 
-					let tmp = { TyRaw::Kind(recog.ctx().unwrap().as_rule_context::<TyContext>().unwrap().ty_kind.as_ref().unwrap().get_kind().clone())}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TyContext>().unwrap().set_ty_raw(tmp); }
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TyContext<TF::Tok>>().unwrap().ty_kind = Some(tmp); } 
+					let tmp = { TyRaw::Kind(recog.ctx().unwrap().as_rule_context::<TyContext<TF::Tok>>().unwrap().ty_kind.as_ref().unwrap().get_kind().clone())}.to_owned();
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TyContext<TF::Tok>>().unwrap().set_ty_raw(tmp); }
 					}
 				}
 			,
@@ -2205,18 +2367,18 @@ where
 					/*InvokeRule ty_kind*/
 					recog.base.set_state(173);
 					let tmp = recog.ty_kind()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TyContext>().unwrap().ty_kind = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TyContext<TF::Tok>>().unwrap().ty_kind = Some(tmp); } 
 					recog.base.set_state(174);
 					recog.base.match_token(CFood_ARROW,&mut recog.err_handler)?;
 					/*InvokeRule ty*/
 					recog.base.set_state(175);
 					let tmp = recog.ty()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TyContext>().unwrap().ty = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TyContext<TF::Tok>>().unwrap().ty = Some(tmp); } 
 					let tmp = { TyRaw::Arrow(
-					            recog.ctx().unwrap().as_rule_context::<TyContext>().unwrap().ty_kind.as_ref().unwrap().get_kind().clone(),
-					            Box::new(recog.ctx().unwrap().as_rule_context::<TyContext>().unwrap().ty.as_ref().unwrap().get_ty_raw().clone())
+					            recog.ctx().unwrap().as_rule_context::<TyContext<TF::Tok>>().unwrap().ty_kind.as_ref().unwrap().get_kind().clone(),
+					            Box::new(recog.ctx().unwrap().as_rule_context::<TyContext<TF::Tok>>().unwrap().ty.as_ref().unwrap().get_ty_raw().clone())
 					        )}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TyContext>().unwrap().set_ty_raw(tmp); }
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<TyContext<TF::Tok>>().unwrap().set_ty_raw(tmp); }
 					    
 					}
 				}
@@ -2234,75 +2396,88 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- ty_kind ----------------
-pub type Ty_kindContextAll<'input, 'arena> = Ty_kindContext<'input, 'arena>;
+pub type Ty_kindContextAll<'input, 'arena, Tok = CommonToken<'input>> = Ty_kindContext<'input, 'arena, Tok>;
 
-pub type Ty_kindContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Ty_kindContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Ty_kindContextExt<'input, 'arena> {
+pub type Ty_kindContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Ty_kindContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Ty_kindContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub kind: TyKind,
 	pub TYPE: Option<&'arena dyn Token >,
-    ph: PhantomData<(&'arena (), &'input ())>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Ty_kindContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Ty_kindContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Ty_kindContext }
 	fn get_rule_index(&self) -> usize { RULE_ty_kind }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Ty_kindContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Ty_kindContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Ty_kindContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Ty_kindContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Ty_kindContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Ty_kindContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Ty_kindContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Ty_kindContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Ty_kindContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Ty_kindContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_kind = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, Ty_kindContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Ty_kindContextExt {
 				TYPE: None, 
 				kind: _init_kind, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Ty_kindContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Ty_kindContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_kind(&self) -> &TyKind; 
     fn set_kind(&mut self,attr: TyKind); 
     /// Retrieves first TerminalNode corresponding to token TY_int
     /// Returns `None` if there is no child corresponding to token TY_int
-    fn TY_int(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn TY_int(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token TY_float
     /// Returns `None` if there is no child corresponding to token TY_float
-    fn TY_float(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn TY_float(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token TY_void
     /// Returns `None` if there is no child corresponding to token TY_void
-    fn TY_void(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn TY_void(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token TYPE
     /// Returns `None` if there is no child corresponding to token TYPE
-    fn TYPE(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn TYPE(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Ty_kindContextAttrs<'input, 'arena> for Ty_kindContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Ty_kindContextAttrs<'input, 'arena, Tok> for Ty_kindContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
@@ -2310,23 +2485,23 @@ where
     fn set_kind(&mut self,attr: TyKind) { self.deref_mut().kind = attr; }  
     /// Retrieves first TerminalNode corresponding to token TY_int
     /// Returns `None` if there is no child corresponding to token TY_int
-    fn TY_int(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_TY_int, 0)
+    fn TY_int(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_TY_int)
     }
     /// Retrieves first TerminalNode corresponding to token TY_float
     /// Returns `None` if there is no child corresponding to token TY_float
-    fn TY_float(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_TY_float, 0)
+    fn TY_float(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_TY_float)
     }
     /// Retrieves first TerminalNode corresponding to token TY_void
     /// Returns `None` if there is no child corresponding to token TY_void
-    fn TY_void(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_TY_void, 0)
+    fn TY_void(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_TY_void)
     }
     /// Retrieves first TerminalNode corresponding to token TYPE
     /// Returns `None` if there is no child corresponding to token TYPE
-    fn TYPE(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_TYPE, 0)
+    fn TYPE(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_TYPE)
     }
 }
 
@@ -2336,11 +2511,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn ty_kind(&mut self,) -> Result<&'arena Ty_kindContextAll<'input, 'arena>, ANTLRError> {
+	pub fn ty_kind(&mut self,) -> Result<&'arena Ty_kindContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Ty_kindContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 28, RULE_ty_kind)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Ty_kindContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Ty_kindContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 28, RULE_ty_kind)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Ty_kindContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(188);
 			recog.err_handler.sync(&mut recog.base)?;
@@ -2352,7 +2528,7 @@ where
 			        recog.base.set_state(180);
 			        recog.base.match_token(CFood_TY_int,&mut recog.err_handler)?;
 			        let tmp = { TyKind::Primitive(Primitive::Int)}.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Ty_kindContext>().unwrap().set_kind(tmp); }
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Ty_kindContext<TF::Tok>>().unwrap().set_kind(tmp); }
 			        }}
 			    CFood_TY_float  => {
 			        /*------- Outer Most Alt 2 -------*/
@@ -2361,7 +2537,7 @@ where
 			        recog.base.set_state(182);
 			        recog.base.match_token(CFood_TY_float,&mut recog.err_handler)?;
 			        let tmp = { TyKind::Primitive(Primitive::Float)}.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Ty_kindContext>().unwrap().set_kind(tmp); }
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Ty_kindContext<TF::Tok>>().unwrap().set_kind(tmp); }
 			        }}
 			    CFood_TY_void  => {
 			        /*------- Outer Most Alt 3 -------*/
@@ -2370,7 +2546,7 @@ where
 			        recog.base.set_state(184);
 			        recog.base.match_token(CFood_TY_void,&mut recog.err_handler)?;
 			        let tmp = { TyKind::Primitive(Primitive::Void)}.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Ty_kindContext>().unwrap().set_kind(tmp); }
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Ty_kindContext<TF::Tok>>().unwrap().set_kind(tmp); }
 			        }}
 			    CFood_TYPE  => {
 			        /*------- Outer Most Alt 4 -------*/
@@ -2378,9 +2554,9 @@ where
 			        {
 			        recog.base.set_state(186);
 			        let tmp = recog.base.match_token(CFood_TYPE,&mut recog.err_handler)?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Ty_kindContext>().unwrap().TYPE = Some(tmp); } 
-			        let tmp = { TyKind::Type(if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Ty_kindContext>().unwrap().TYPE { it.get_text() } else { "null" } .to_string())}.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Ty_kindContext>().unwrap().set_kind(tmp); }
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Ty_kindContext<TF::Tok>>().unwrap().TYPE = Some(tmp); } 
+			        let tmp = { TyKind::Type(if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Ty_kindContext<TF::Tok>>().unwrap().TYPE { it.get_text() } else { "null" } .to_string())}.to_owned();
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Ty_kindContext<TF::Tok>>().unwrap().set_kind(tmp); }
 			        }}
 				_ => Err(ANTLRError::no_alt(&mut recog.base))?
 			}
@@ -2395,77 +2571,90 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- block ----------------
-pub type BlockContextAll<'input, 'arena> = BlockContext<'input, 'arena>;
+pub type BlockContextAll<'input, 'arena, Tok = CommonToken<'input>> = BlockContext<'input, 'arena, Tok>;
 
-pub type BlockContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, BlockContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct BlockContextExt<'input, 'arena> {
-    ph: PhantomData<(&'arena (), &'input ())>,
+pub type BlockContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, BlockContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct BlockContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for BlockContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for BlockContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::BlockContext }
 	fn get_rule_index(&self) -> usize { RULE_block }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::BlockContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: BlockContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a BlockContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => BlockContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::BlockContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut BlockContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut BlockContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> BlockContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> BlockContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> BlockContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
-        BaseParserRuleContext::new(arena, parent, invoking_state, BlockContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, BlockContextExt {
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait BlockContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait BlockContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     /// Retrieves first TerminalNode corresponding to token BRACE_L
     /// Returns `None` if there is no child corresponding to token BRACE_L
-    fn BRACE_L(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn stmts(&self) -> Option<&'arena StmtsContextAll<'input, 'arena>>;
+    fn BRACE_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn stmts(&self) -> Option<&'arena StmtsContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token BRACE_R
     /// Returns `None` if there is no child corresponding to token BRACE_R
-    fn BRACE_R(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn BRACE_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> BlockContextAttrs<'input, 'arena> for BlockContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> BlockContextAttrs<'input, 'arena, Tok> for BlockContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     /// Retrieves first TerminalNode corresponding to token BRACE_L
     /// Returns `None` if there is no child corresponding to token BRACE_L
-    fn BRACE_L(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_BRACE_L, 0)
+    fn BRACE_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_BRACE_L)
     }
-    fn stmts(&self) -> Option<&'arena StmtsContextAll<'input, 'arena>> {
+    fn stmts(&self) -> Option<&'arena StmtsContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token BRACE_R
     /// Returns `None` if there is no child corresponding to token BRACE_R
-    fn BRACE_R(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_BRACE_R, 0)
+    fn BRACE_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_BRACE_R)
     }
 }
 
@@ -2475,11 +2664,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn block(&mut self,) -> Result<&'arena BlockContextAll<'input, 'arena>, ANTLRError> {
+	pub fn block(&mut self,) -> Result<&'arena BlockContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(BlockContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 30, RULE_block)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena BlockContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(BlockContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 30, RULE_block)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena BlockContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			/*------- Outer Most Alt 1 -------*/
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -2509,64 +2699,77 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- stmts ----------------
-pub type StmtsContextAll<'input, 'arena> = StmtsContext<'input, 'arena>;
+pub type StmtsContextAll<'input, 'arena, Tok = CommonToken<'input>> = StmtsContext<'input, 'arena, Tok>;
 
-pub type StmtsContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, StmtsContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct StmtsContextExt<'input, 'arena> {
-    ph: PhantomData<(&'arena (), &'input ())>,
+pub type StmtsContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, StmtsContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct StmtsContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for StmtsContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for StmtsContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::StmtsContext }
 	fn get_rule_index(&self) -> usize { RULE_stmts }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::StmtsContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: StmtsContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a StmtsContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => StmtsContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::StmtsContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut StmtsContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut StmtsContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> StmtsContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> StmtsContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> StmtsContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
-        BaseParserRuleContext::new(arena, parent, invoking_state, StmtsContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, StmtsContextExt {
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait StmtsContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait StmtsContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
-    fn stmt(&self) -> Option<&'arena StmtContextAll<'input, 'arena>>;
-    fn stmts(&self) -> Option<&'arena StmtsContextAll<'input, 'arena>>;
+    fn stmt(&self) -> Option<&'arena StmtContextAll<'input, 'arena, Tok>>;
+    fn stmts(&self) -> Option<&'arena StmtsContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> StmtsContextAttrs<'input, 'arena> for StmtsContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> StmtsContextAttrs<'input, 'arena, Tok> for StmtsContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
-    fn stmt(&self) -> Option<&'arena StmtContextAll<'input, 'arena>> {
+    fn stmt(&self) -> Option<&'arena StmtContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn stmts(&self) -> Option<&'arena StmtsContextAll<'input, 'arena>> {
+    fn stmts(&self) -> Option<&'arena StmtsContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -2577,11 +2780,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn stmts(&mut self,) -> Result<&'arena StmtsContextAll<'input, 'arena>, ANTLRError> {
+	pub fn stmts(&mut self,) -> Result<&'arena StmtsContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(StmtsContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 32, RULE_stmts)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena StmtsContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(StmtsContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 32, RULE_stmts)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena StmtsContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(200);
 			recog.err_handler.sync(&mut recog.base)?;
@@ -2617,92 +2821,105 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- stmt ----------------
-pub type StmtContextAll<'input, 'arena> = StmtContext<'input, 'arena>;
+pub type StmtContextAll<'input, 'arena, Tok = CommonToken<'input>> = StmtContext<'input, 'arena, Tok>;
 
-pub type StmtContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, StmtContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct StmtContextExt<'input, 'arena> {
-    ph: PhantomData<(&'arena (), &'input ())>,
+pub type StmtContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, StmtContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct StmtContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for StmtContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for StmtContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::StmtContext }
 	fn get_rule_index(&self) -> usize { RULE_stmt }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::StmtContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: StmtContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a StmtContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => StmtContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::StmtContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut StmtContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut StmtContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> StmtContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> StmtContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> StmtContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
-        BaseParserRuleContext::new(arena, parent, invoking_state, StmtContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, StmtContextExt {
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait StmtContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait StmtContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
-    fn var_decl(&self) -> Option<&'arena Var_declContextAll<'input, 'arena>>;
-    fn let_stmt(&self) -> Option<&'arena Let_stmtContextAll<'input, 'arena>>;
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena>>;
+    fn var_decl(&self) -> Option<&'arena Var_declContextAll<'input, 'arena, Tok>>;
+    fn let_stmt(&self) -> Option<&'arena Let_stmtContextAll<'input, 'arena, Tok>>;
+    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token SEMICOLON
     /// Returns `None` if there is no child corresponding to token SEMICOLON
-    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn branch_stmt(&self) -> Option<&'arena Branch_stmtContextAll<'input, 'arena>>;
-    fn iter_stmt(&self) -> Option<&'arena Iter_stmtContextAll<'input, 'arena>>;
-    fn return_stmt(&self) -> Option<&'arena Return_stmtContextAll<'input, 'arena>>;
-    fn block(&self) -> Option<&'arena BlockContextAll<'input, 'arena>>;
+    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn branch_stmt(&self) -> Option<&'arena Branch_stmtContextAll<'input, 'arena, Tok>>;
+    fn iter_stmt(&self) -> Option<&'arena Iter_stmtContextAll<'input, 'arena, Tok>>;
+    fn return_stmt(&self) -> Option<&'arena Return_stmtContextAll<'input, 'arena, Tok>>;
+    fn block(&self) -> Option<&'arena BlockContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> StmtContextAttrs<'input, 'arena> for StmtContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> StmtContextAttrs<'input, 'arena, Tok> for StmtContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
-    fn var_decl(&self) -> Option<&'arena Var_declContextAll<'input, 'arena>> {
+    fn var_decl(&self) -> Option<&'arena Var_declContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn let_stmt(&self) -> Option<&'arena Let_stmtContextAll<'input, 'arena>> {
+    fn let_stmt(&self) -> Option<&'arena Let_stmtContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena>> {
+    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token SEMICOLON
     /// Returns `None` if there is no child corresponding to token SEMICOLON
-    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_SEMICOLON, 0)
+    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_SEMICOLON)
     }
-    fn branch_stmt(&self) -> Option<&'arena Branch_stmtContextAll<'input, 'arena>> {
+    fn branch_stmt(&self) -> Option<&'arena Branch_stmtContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn iter_stmt(&self) -> Option<&'arena Iter_stmtContextAll<'input, 'arena>> {
+    fn iter_stmt(&self) -> Option<&'arena Iter_stmtContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn return_stmt(&self) -> Option<&'arena Return_stmtContextAll<'input, 'arena>> {
+    fn return_stmt(&self) -> Option<&'arena Return_stmtContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn block(&self) -> Option<&'arena BlockContextAll<'input, 'arena>> {
+    fn block(&self) -> Option<&'arena BlockContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -2713,11 +2930,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn stmt(&mut self,) -> Result<&'arena StmtContextAll<'input, 'arena>, ANTLRError> {
+	pub fn stmt(&mut self,) -> Result<&'arena StmtContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(StmtContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 34, RULE_stmt)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena StmtContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(StmtContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 34, RULE_stmt)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena StmtContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(211);
 			recog.err_handler.sync(&mut recog.base)?;
@@ -2793,69 +3011,82 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- may_empty_stmt ----------------
-pub type May_empty_stmtContextAll<'input, 'arena> = May_empty_stmtContext<'input, 'arena>;
+pub type May_empty_stmtContextAll<'input, 'arena, Tok = CommonToken<'input>> = May_empty_stmtContext<'input, 'arena, Tok>;
 
-pub type May_empty_stmtContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, May_empty_stmtContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct May_empty_stmtContextExt<'input, 'arena> {
-    ph: PhantomData<(&'arena (), &'input ())>,
+pub type May_empty_stmtContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, May_empty_stmtContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct May_empty_stmtContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for May_empty_stmtContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for May_empty_stmtContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::May_empty_stmtContext }
 	fn get_rule_index(&self) -> usize { RULE_may_empty_stmt }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::May_empty_stmtContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: May_empty_stmtContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a May_empty_stmtContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => May_empty_stmtContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::May_empty_stmtContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut May_empty_stmtContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut May_empty_stmtContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> May_empty_stmtContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> May_empty_stmtContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> May_empty_stmtContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
-        BaseParserRuleContext::new(arena, parent, invoking_state, May_empty_stmtContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, May_empty_stmtContextExt {
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait May_empty_stmtContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait May_empty_stmtContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
-    fn stmt(&self) -> Option<&'arena StmtContextAll<'input, 'arena>>;
+    fn stmt(&self) -> Option<&'arena StmtContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token SEMICOLON
     /// Returns `None` if there is no child corresponding to token SEMICOLON
-    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> May_empty_stmtContextAttrs<'input, 'arena> for May_empty_stmtContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> May_empty_stmtContextAttrs<'input, 'arena, Tok> for May_empty_stmtContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
-    fn stmt(&self) -> Option<&'arena StmtContextAll<'input, 'arena>> {
+    fn stmt(&self) -> Option<&'arena StmtContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token SEMICOLON
     /// Returns `None` if there is no child corresponding to token SEMICOLON
-    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_SEMICOLON, 0)
+    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_SEMICOLON)
     }
 }
 
@@ -2865,11 +3096,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn may_empty_stmt(&mut self,) -> Result<&'arena May_empty_stmtContextAll<'input, 'arena>, ANTLRError> {
+	pub fn may_empty_stmt(&mut self,) -> Result<&'arena May_empty_stmtContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(May_empty_stmtContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 36, RULE_may_empty_stmt)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena May_empty_stmtContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(May_empty_stmtContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 36, RULE_may_empty_stmt)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena May_empty_stmtContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(215);
 			recog.err_handler.sync(&mut recog.base)?;
@@ -2904,105 +3136,118 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- branch_stmt ----------------
-pub type Branch_stmtContextAll<'input, 'arena> = Branch_stmtContext<'input, 'arena>;
+pub type Branch_stmtContextAll<'input, 'arena, Tok = CommonToken<'input>> = Branch_stmtContext<'input, 'arena, Tok>;
 
-pub type Branch_stmtContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Branch_stmtContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Branch_stmtContextExt<'input, 'arena> {
+pub type Branch_stmtContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Branch_stmtContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Branch_stmtContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub KW_if: Option<&'arena dyn Token >,
-	pub expr: Option<&'arena ExprContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub expr: Option<&'arena ExprContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Branch_stmtContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Branch_stmtContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Branch_stmtContext }
 	fn get_rule_index(&self) -> usize { RULE_branch_stmt }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Branch_stmtContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Branch_stmtContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Branch_stmtContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Branch_stmtContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Branch_stmtContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Branch_stmtContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Branch_stmtContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Branch_stmtContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Branch_stmtContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Branch_stmtContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
-        BaseParserRuleContext::new(arena, parent, invoking_state, Branch_stmtContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Branch_stmtContextExt {
 				KW_if: None, 
 				expr: None, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Branch_stmtContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Branch_stmtContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     /// Retrieves first TerminalNode corresponding to token KW_if
     /// Returns `None` if there is no child corresponding to token KW_if
-    fn KW_if(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn KW_if(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token PAREN_L
     /// Returns `None` if there is no child corresponding to token PAREN_L
-    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena>>;
+    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token PAREN_R
     /// Returns `None` if there is no child corresponding to token PAREN_R
-    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn may_empty_stmt_all(&self) -> Vec<&'arena May_empty_stmtContextAll<'input, 'arena>>;
-    fn may_empty_stmt(&self, i: usize) -> Option<&'arena May_empty_stmtContextAll<'input, 'arena>>;
+    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn may_empty_stmt_all(&self) -> Vec<&'arena May_empty_stmtContextAll<'input, 'arena, Tok>>;
+    fn may_empty_stmt(&self, i: usize) -> Option<&'arena May_empty_stmtContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token KW_else
     /// Returns `None` if there is no child corresponding to token KW_else
-    fn KW_else(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn KW_else(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Branch_stmtContextAttrs<'input, 'arena> for Branch_stmtContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Branch_stmtContextAttrs<'input, 'arena, Tok> for Branch_stmtContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     /// Retrieves first TerminalNode corresponding to token KW_if
     /// Returns `None` if there is no child corresponding to token KW_if
-    fn KW_if(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_KW_if, 0)
+    fn KW_if(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_KW_if)
     }
     /// Retrieves first TerminalNode corresponding to token PAREN_L
     /// Returns `None` if there is no child corresponding to token PAREN_L
-    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_PAREN_L, 0)
+    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_PAREN_L)
     }
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena>> {
+    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token PAREN_R
     /// Returns `None` if there is no child corresponding to token PAREN_R
-    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_PAREN_R, 0)
+    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_PAREN_R)
     }
-    fn may_empty_stmt_all(&self) -> Vec<&'arena May_empty_stmtContextAll<'input, 'arena>> {
+    fn may_empty_stmt_all(&self) -> Vec<&'arena May_empty_stmtContextAll<'input, 'arena, Tok>> {
         self.children_of_type()
     }
-    fn may_empty_stmt(&self, i: usize) -> Option<&'arena May_empty_stmtContextAll<'input, 'arena>> {
+    fn may_empty_stmt(&self, i: usize) -> Option<&'arena May_empty_stmtContextAll<'input, 'arena, Tok>> {
         self.child_of_type(i)
     }
     /// Retrieves first TerminalNode corresponding to token KW_else
     /// Returns `None` if there is no child corresponding to token KW_else
-    fn KW_else(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_KW_else, 0)
+    fn KW_else(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_KW_else)
     }
 }
 
@@ -3012,28 +3257,29 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn branch_stmt(&mut self,) -> Result<&'arena Branch_stmtContextAll<'input, 'arena>, ANTLRError> {
+	pub fn branch_stmt(&mut self,) -> Result<&'arena Branch_stmtContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Branch_stmtContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 38, RULE_branch_stmt)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Branch_stmtContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Branch_stmtContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 38, RULE_branch_stmt)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Branch_stmtContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(233);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.interpreter.adaptive_predict(13,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(13,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 					{
 					recog.base.set_state(217);
 					let tmp = recog.base.match_token(CFood_KW_if,&mut recog.err_handler)?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Branch_stmtContext>().unwrap().KW_if = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Branch_stmtContext<TF::Tok>>().unwrap().KW_if = Some(tmp); } 
 					recog.base.set_state(218);
 					recog.base.match_token(CFood_PAREN_L,&mut recog.err_handler)?;
 					/*InvokeRule expr*/
 					recog.base.set_state(219);
 					let tmp = recog.expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Branch_stmtContext>().unwrap().expr = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Branch_stmtContext<TF::Tok>>().unwrap().expr = Some(tmp); } 
 					recog.base.set_state(220);
 					recog.base.match_token(CFood_PAREN_R,&mut recog.err_handler)?;
 					/*InvokeRule may_empty_stmt*/
@@ -3041,8 +3287,8 @@ where
 					recog.may_empty_stmt()?;
 
 					        let bound = recog.tlt.new_ty(Ty::bool());
-					        let expr = *recog.ctx().unwrap().as_rule_context::<Branch_stmtContext>().unwrap().expr.as_ref().unwrap().get_ty_id();
-					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Branch_stmtContext>().unwrap().KW_if { it.get_line() } else { 0 } ;
+					        let expr = *recog.ctx().unwrap().as_rule_context::<Branch_stmtContext<TF::Tok>>().unwrap().expr.as_ref().unwrap().get_ty_id();
+					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Branch_stmtContext<TF::Tok>>().unwrap().KW_if { it.get_line() } else { 0 } ;
 					        recog.tlt.assert_ty_id(bound, expr, line);
 					    
 					}
@@ -3054,13 +3300,13 @@ where
 					{
 					recog.base.set_state(224);
 					let tmp = recog.base.match_token(CFood_KW_if,&mut recog.err_handler)?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Branch_stmtContext>().unwrap().KW_if = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Branch_stmtContext<TF::Tok>>().unwrap().KW_if = Some(tmp); } 
 					recog.base.set_state(225);
 					recog.base.match_token(CFood_PAREN_L,&mut recog.err_handler)?;
 					/*InvokeRule expr*/
 					recog.base.set_state(226);
 					let tmp = recog.expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Branch_stmtContext>().unwrap().expr = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Branch_stmtContext<TF::Tok>>().unwrap().expr = Some(tmp); } 
 					recog.base.set_state(227);
 					recog.base.match_token(CFood_PAREN_R,&mut recog.err_handler)?;
 					/*InvokeRule may_empty_stmt*/
@@ -3073,8 +3319,8 @@ where
 					recog.may_empty_stmt()?;
 
 					        let bound = recog.tlt.new_ty(Ty::bool());
-					        let expr = *recog.ctx().unwrap().as_rule_context::<Branch_stmtContext>().unwrap().expr.as_ref().unwrap().get_ty_id();
-					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Branch_stmtContext>().unwrap().KW_if { it.get_line() } else { 0 } ;
+					        let expr = *recog.ctx().unwrap().as_rule_context::<Branch_stmtContext<TF::Tok>>().unwrap().expr.as_ref().unwrap().get_ty_id();
+					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Branch_stmtContext<TF::Tok>>().unwrap().KW_if { it.get_line() } else { 0 } ;
 					        recog.tlt.assert_ty_id(bound, expr, line);
 					    
 					}
@@ -3093,92 +3339,105 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- iter_stmt ----------------
-pub type Iter_stmtContextAll<'input, 'arena> = Iter_stmtContext<'input, 'arena>;
+pub type Iter_stmtContextAll<'input, 'arena, Tok = CommonToken<'input>> = Iter_stmtContext<'input, 'arena, Tok>;
 
-pub type Iter_stmtContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Iter_stmtContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Iter_stmtContextExt<'input, 'arena> {
+pub type Iter_stmtContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Iter_stmtContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Iter_stmtContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub KW_while: Option<&'arena dyn Token >,
-	pub expr: Option<&'arena ExprContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub expr: Option<&'arena ExprContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Iter_stmtContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Iter_stmtContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Iter_stmtContext }
 	fn get_rule_index(&self) -> usize { RULE_iter_stmt }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Iter_stmtContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Iter_stmtContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Iter_stmtContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Iter_stmtContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Iter_stmtContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Iter_stmtContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Iter_stmtContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Iter_stmtContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Iter_stmtContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Iter_stmtContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
-        BaseParserRuleContext::new(arena, parent, invoking_state, Iter_stmtContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Iter_stmtContextExt {
 				KW_while: None, 
 				expr: None, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Iter_stmtContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Iter_stmtContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     /// Retrieves first TerminalNode corresponding to token KW_while
     /// Returns `None` if there is no child corresponding to token KW_while
-    fn KW_while(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn KW_while(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token PAREN_L
     /// Returns `None` if there is no child corresponding to token PAREN_L
-    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena>>;
+    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token PAREN_R
     /// Returns `None` if there is no child corresponding to token PAREN_R
-    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn may_empty_stmt(&self) -> Option<&'arena May_empty_stmtContextAll<'input, 'arena>>;
+    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn may_empty_stmt(&self) -> Option<&'arena May_empty_stmtContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Iter_stmtContextAttrs<'input, 'arena> for Iter_stmtContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Iter_stmtContextAttrs<'input, 'arena, Tok> for Iter_stmtContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     /// Retrieves first TerminalNode corresponding to token KW_while
     /// Returns `None` if there is no child corresponding to token KW_while
-    fn KW_while(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_KW_while, 0)
+    fn KW_while(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_KW_while)
     }
     /// Retrieves first TerminalNode corresponding to token PAREN_L
     /// Returns `None` if there is no child corresponding to token PAREN_L
-    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_PAREN_L, 0)
+    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_PAREN_L)
     }
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena>> {
+    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token PAREN_R
     /// Returns `None` if there is no child corresponding to token PAREN_R
-    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_PAREN_R, 0)
+    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_PAREN_R)
     }
-    fn may_empty_stmt(&self) -> Option<&'arena May_empty_stmtContextAll<'input, 'arena>> {
+    fn may_empty_stmt(&self) -> Option<&'arena May_empty_stmtContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -3189,24 +3448,25 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn iter_stmt(&mut self,) -> Result<&'arena Iter_stmtContextAll<'input, 'arena>, ANTLRError> {
+	pub fn iter_stmt(&mut self,) -> Result<&'arena Iter_stmtContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Iter_stmtContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 40, RULE_iter_stmt)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Iter_stmtContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Iter_stmtContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 40, RULE_iter_stmt)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Iter_stmtContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			/*------- Outer Most Alt 1 -------*/
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			{
 			recog.base.set_state(235);
 			let tmp = recog.base.match_token(CFood_KW_while,&mut recog.err_handler)?;
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Iter_stmtContext>().unwrap().KW_while = Some(tmp); } 
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Iter_stmtContext<TF::Tok>>().unwrap().KW_while = Some(tmp); } 
 			recog.base.set_state(236);
 			recog.base.match_token(CFood_PAREN_L,&mut recog.err_handler)?;
 			/*InvokeRule expr*/
 			recog.base.set_state(237);
 			let tmp = recog.expr()?;
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Iter_stmtContext>().unwrap().expr = Some(tmp); } 
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Iter_stmtContext<TF::Tok>>().unwrap().expr = Some(tmp); } 
 			recog.base.set_state(238);
 			recog.base.match_token(CFood_PAREN_R,&mut recog.err_handler)?;
 			/*InvokeRule may_empty_stmt*/
@@ -3214,8 +3474,8 @@ where
 			recog.may_empty_stmt()?;
 
 			        let bound = recog.tlt.new_ty(Ty::bool());
-			        let expr = *recog.ctx().unwrap().as_rule_context::<Iter_stmtContext>().unwrap().expr.as_ref().unwrap().get_ty_id();
-			        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Iter_stmtContext>().unwrap().KW_while { it.get_line() } else { 0 } ;
+			        let expr = *recog.ctx().unwrap().as_rule_context::<Iter_stmtContext<TF::Tok>>().unwrap().expr.as_ref().unwrap().get_ty_id();
+			        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Iter_stmtContext<TF::Tok>>().unwrap().KW_while { it.get_line() } else { 0 } ;
 			        recog.tlt.assert_ty_id(bound, expr, line);
 			    
 			}
@@ -3230,80 +3490,93 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- return_stmt ----------------
-pub type Return_stmtContextAll<'input, 'arena> = Return_stmtContext<'input, 'arena>;
+pub type Return_stmtContextAll<'input, 'arena, Tok = CommonToken<'input>> = Return_stmtContext<'input, 'arena, Tok>;
 
-pub type Return_stmtContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Return_stmtContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Return_stmtContextExt<'input, 'arena> {
+pub type Return_stmtContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Return_stmtContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Return_stmtContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub KW_return: Option<&'arena dyn Token >,
-	pub expr: Option<&'arena ExprContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub expr: Option<&'arena ExprContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Return_stmtContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Return_stmtContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Return_stmtContext }
 	fn get_rule_index(&self) -> usize { RULE_return_stmt }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Return_stmtContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Return_stmtContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Return_stmtContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Return_stmtContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Return_stmtContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Return_stmtContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Return_stmtContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Return_stmtContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Return_stmtContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Return_stmtContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
-        BaseParserRuleContext::new(arena, parent, invoking_state, Return_stmtContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Return_stmtContextExt {
 				KW_return: None, 
 				expr: None, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Return_stmtContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Return_stmtContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     /// Retrieves first TerminalNode corresponding to token KW_return
     /// Returns `None` if there is no child corresponding to token KW_return
-    fn KW_return(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn KW_return(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token SEMICOLON
     /// Returns `None` if there is no child corresponding to token SEMICOLON
-    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena>>;
+    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Return_stmtContextAttrs<'input, 'arena> for Return_stmtContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Return_stmtContextAttrs<'input, 'arena, Tok> for Return_stmtContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     /// Retrieves first TerminalNode corresponding to token KW_return
     /// Returns `None` if there is no child corresponding to token KW_return
-    fn KW_return(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_KW_return, 0)
+    fn KW_return(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_KW_return)
     }
     /// Retrieves first TerminalNode corresponding to token SEMICOLON
     /// Returns `None` if there is no child corresponding to token SEMICOLON
-    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_SEMICOLON, 0)
+    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_SEMICOLON)
     }
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena>> {
+    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -3314,26 +3587,27 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn return_stmt(&mut self,) -> Result<&'arena Return_stmtContextAll<'input, 'arena>, ANTLRError> {
+	pub fn return_stmt(&mut self,) -> Result<&'arena Return_stmtContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Return_stmtContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 42, RULE_return_stmt)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Return_stmtContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Return_stmtContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 42, RULE_return_stmt)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Return_stmtContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(250);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.interpreter.adaptive_predict(14,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(14,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 					{
 					recog.base.set_state(242);
 					let tmp = recog.base.match_token(CFood_KW_return,&mut recog.err_handler)?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Return_stmtContext>().unwrap().KW_return = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Return_stmtContext<TF::Tok>>().unwrap().KW_return = Some(tmp); } 
 					recog.base.set_state(243);
 					recog.base.match_token(CFood_SEMICOLON,&mut recog.err_handler)?;
 
-					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Return_stmtContext>().unwrap().KW_return { it.get_line() } else { 0 } ;
+					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Return_stmtContext<TF::Tok>>().unwrap().KW_return { it.get_line() } else { 0 } ;
 					        let bound = recog.tlt.var("return", line);
 					        let expr = recog.tlt.new_ty(Ty::void());
 					        recog.tlt.assert_ty_id(bound, expr, line);
@@ -3347,17 +3621,17 @@ where
 					{
 					recog.base.set_state(245);
 					let tmp = recog.base.match_token(CFood_KW_return,&mut recog.err_handler)?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Return_stmtContext>().unwrap().KW_return = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Return_stmtContext<TF::Tok>>().unwrap().KW_return = Some(tmp); } 
 					/*InvokeRule expr*/
 					recog.base.set_state(246);
 					let tmp = recog.expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Return_stmtContext>().unwrap().expr = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Return_stmtContext<TF::Tok>>().unwrap().expr = Some(tmp); } 
 					recog.base.set_state(247);
 					recog.base.match_token(CFood_SEMICOLON,&mut recog.err_handler)?;
 
-					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Return_stmtContext>().unwrap().KW_return { it.get_line() } else { 0 } ;
+					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Return_stmtContext<TF::Tok>>().unwrap().KW_return { it.get_line() } else { 0 } ;
 					        let bound = recog.tlt.var("return", line);
-					        let expr = *recog.ctx().unwrap().as_rule_context::<Return_stmtContext>().unwrap().expr.as_ref().unwrap().get_ty_id();
+					        let expr = *recog.ctx().unwrap().as_rule_context::<Return_stmtContext<TF::Tok>>().unwrap().expr.as_ref().unwrap().get_ty_id();
 					        recog.tlt.assert_ty_id(bound, expr, line);
 					    
 					}
@@ -3376,98 +3650,111 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- let_stmt ----------------
-pub type Let_stmtContextAll<'input, 'arena> = Let_stmtContext<'input, 'arena>;
+pub type Let_stmtContextAll<'input, 'arena, Tok = CommonToken<'input>> = Let_stmtContext<'input, 'arena, Tok>;
 
-pub type Let_stmtContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Let_stmtContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Let_stmtContextExt<'input, 'arena> {
+pub type Let_stmtContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Let_stmtContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Let_stmtContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub KW_let: Option<&'arena dyn Token >,
 	pub IDENT: Option<&'arena dyn Token >,
-	pub expr: Option<&'arena ExprContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub expr: Option<&'arena ExprContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Let_stmtContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Let_stmtContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Let_stmtContext }
 	fn get_rule_index(&self) -> usize { RULE_let_stmt }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Let_stmtContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Let_stmtContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Let_stmtContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Let_stmtContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Let_stmtContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Let_stmtContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Let_stmtContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Let_stmtContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Let_stmtContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Let_stmtContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
-        BaseParserRuleContext::new(arena, parent, invoking_state, Let_stmtContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Let_stmtContextExt {
 				KW_let: None, IDENT: None, 
 				expr: None, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Let_stmtContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Let_stmtContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     /// Retrieves first TerminalNode corresponding to token KW_let
     /// Returns `None` if there is no child corresponding to token KW_let
-    fn KW_let(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn KW_let(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token IDENT
     /// Returns `None` if there is no child corresponding to token IDENT
-    fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token ASSIGN
     /// Returns `None` if there is no child corresponding to token ASSIGN
-    fn ASSIGN(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena>>;
+    fn ASSIGN(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token SEMICOLON
     /// Returns `None` if there is no child corresponding to token SEMICOLON
-    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Let_stmtContextAttrs<'input, 'arena> for Let_stmtContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Let_stmtContextAttrs<'input, 'arena, Tok> for Let_stmtContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     /// Retrieves first TerminalNode corresponding to token KW_let
     /// Returns `None` if there is no child corresponding to token KW_let
-    fn KW_let(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_KW_let, 0)
+    fn KW_let(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_KW_let)
     }
     /// Retrieves first TerminalNode corresponding to token IDENT
     /// Returns `None` if there is no child corresponding to token IDENT
-    fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_IDENT, 0)
+    fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_IDENT)
     }
     /// Retrieves first TerminalNode corresponding to token ASSIGN
     /// Returns `None` if there is no child corresponding to token ASSIGN
-    fn ASSIGN(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_ASSIGN, 0)
+    fn ASSIGN(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_ASSIGN)
     }
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena>> {
+    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token SEMICOLON
     /// Returns `None` if there is no child corresponding to token SEMICOLON
-    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_SEMICOLON, 0)
+    fn SEMICOLON(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_SEMICOLON)
     }
 }
 
@@ -3477,33 +3764,34 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn let_stmt(&mut self,) -> Result<&'arena Let_stmtContextAll<'input, 'arena>, ANTLRError> {
+	pub fn let_stmt(&mut self,) -> Result<&'arena Let_stmtContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Let_stmtContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 44, RULE_let_stmt)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Let_stmtContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Let_stmtContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 44, RULE_let_stmt)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Let_stmtContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			/*------- Outer Most Alt 1 -------*/
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			{
 			recog.base.set_state(252);
 			let tmp = recog.base.match_token(CFood_KW_let,&mut recog.err_handler)?;
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Let_stmtContext>().unwrap().KW_let = Some(tmp); } 
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Let_stmtContext<TF::Tok>>().unwrap().KW_let = Some(tmp); } 
 			recog.base.set_state(253);
 			let tmp = recog.base.match_token(CFood_IDENT,&mut recog.err_handler)?;
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Let_stmtContext>().unwrap().IDENT = Some(tmp); } 
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Let_stmtContext<TF::Tok>>().unwrap().IDENT = Some(tmp); } 
 			recog.base.set_state(254);
 			recog.base.match_token(CFood_ASSIGN,&mut recog.err_handler)?;
 			/*InvokeRule expr*/
 			recog.base.set_state(255);
 			let tmp = recog.expr()?;
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Let_stmtContext>().unwrap().expr = Some(tmp); } 
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Let_stmtContext<TF::Tok>>().unwrap().expr = Some(tmp); } 
 			recog.base.set_state(256);
 			recog.base.match_token(CFood_SEMICOLON,&mut recog.err_handler)?;
 
-			        let name = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Let_stmtContext>().unwrap().IDENT { it.get_text() } else { "null" } ;
-			        let expr = *recog.ctx().unwrap().as_rule_context::<Let_stmtContext>().unwrap().expr.as_ref().unwrap().get_ty_id();
-			        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Let_stmtContext>().unwrap().KW_let { it.get_line() } else { 0 } ;
+			        let name = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Let_stmtContext<TF::Tok>>().unwrap().IDENT { it.get_text() } else { "null" } ;
+			        let expr = *recog.ctx().unwrap().as_rule_context::<Let_stmtContext<TF::Tok>>().unwrap().expr.as_ref().unwrap().get_ty_id();
+			        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Let_stmtContext<TF::Tok>>().unwrap().KW_let { it.get_line() } else { 0 } ;
 
 			        recog.tlt.new_let(
 			            name,
@@ -3524,75 +3812,88 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- expr ----------------
-pub type ExprContextAll<'input, 'arena> = ExprContext<'input, 'arena>;
+pub type ExprContextAll<'input, 'arena, Tok = CommonToken<'input>> = ExprContext<'input, 'arena, Tok>;
 
-pub type ExprContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, ExprContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct ExprContextExt<'input, 'arena> {
+pub type ExprContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, ExprContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct ExprContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub ty_id: TyId,
-	pub assign_expr: Option<&'arena Assign_exprContextAll<'input, 'arena>>,
-	pub calc_expr: Option<&'arena Calc_exprContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub assign_expr: Option<&'arena Assign_exprContextAll<'input, 'arena, Tok>>,
+	pub calc_expr: Option<&'arena Calc_exprContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for ExprContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for ExprContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::ExprContext }
 	fn get_rule_index(&self) -> usize { RULE_expr }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::ExprContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: ExprContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a ExprContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => ExprContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::ExprContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut ExprContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut ExprContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> ExprContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> ExprContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> ExprContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_ty_id = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, ExprContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, ExprContextExt {
 				assign_expr: None, calc_expr: None, 
 				ty_id: _init_ty_id, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait ExprContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait ExprContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_ty_id(&self) -> &TyId; 
     fn set_ty_id(&mut self,attr: TyId); 
-    fn assign_expr(&self) -> Option<&'arena Assign_exprContextAll<'input, 'arena>>;
-    fn calc_expr(&self) -> Option<&'arena Calc_exprContextAll<'input, 'arena>>;
+    fn assign_expr(&self) -> Option<&'arena Assign_exprContextAll<'input, 'arena, Tok>>;
+    fn calc_expr(&self) -> Option<&'arena Calc_exprContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> ExprContextAttrs<'input, 'arena> for ExprContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> ExprContextAttrs<'input, 'arena, Tok> for ExprContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     fn get_ty_id(&self) -> &TyId { &self.deref().ty_id }  
     fn set_ty_id(&mut self,attr: TyId) { self.deref_mut().ty_id = attr; }  
-    fn assign_expr(&self) -> Option<&'arena Assign_exprContextAll<'input, 'arena>> {
+    fn assign_expr(&self) -> Option<&'arena Assign_exprContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn calc_expr(&self) -> Option<&'arena Calc_exprContextAll<'input, 'arena>> {
+    fn calc_expr(&self) -> Option<&'arena Calc_exprContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -3603,15 +3904,16 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn expr(&mut self,) -> Result<&'arena ExprContextAll<'input, 'arena>, ANTLRError> {
+	pub fn expr(&mut self,) -> Result<&'arena ExprContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(ExprContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 46, RULE_expr)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena ExprContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(ExprContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 46, RULE_expr)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena ExprContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(265);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.interpreter.adaptive_predict(15,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(15,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -3619,10 +3921,10 @@ where
 					/*InvokeRule assign_expr*/
 					recog.base.set_state(259);
 					let tmp = recog.assign_expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ExprContext>().unwrap().assign_expr = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ExprContext<TF::Tok>>().unwrap().assign_expr = Some(tmp); } 
 
-					        let tmp = { *recog.ctx().unwrap().as_rule_context::<ExprContext>().unwrap().assign_expr.as_ref().unwrap().get_ty_id()}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ExprContext>().unwrap().set_ty_id(tmp); }
+					        let tmp = { *recog.ctx().unwrap().as_rule_context::<ExprContext<TF::Tok>>().unwrap().assign_expr.as_ref().unwrap().get_ty_id()}.to_owned();
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ExprContext<TF::Tok>>().unwrap().set_ty_id(tmp); }
 					    
 					}
 				}
@@ -3634,10 +3936,10 @@ where
 					/*InvokeRule calc_expr*/
 					recog.base.set_state(262);
 					let tmp = recog.calc_expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ExprContext>().unwrap().calc_expr = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ExprContext<TF::Tok>>().unwrap().calc_expr = Some(tmp); } 
 
-					        let tmp = { *recog.ctx().unwrap().as_rule_context::<ExprContext>().unwrap().calc_expr.as_ref().unwrap().get_ty_id()}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ExprContext>().unwrap().set_ty_id(tmp); }
+					        let tmp = { *recog.ctx().unwrap().as_rule_context::<ExprContext<TF::Tok>>().unwrap().calc_expr.as_ref().unwrap().get_ty_id()}.to_owned();
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ExprContext<TF::Tok>>().unwrap().set_ty_id(tmp); }
 					    
 					}
 				}
@@ -3655,85 +3957,98 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- assign_expr ----------------
-pub type Assign_exprContextAll<'input, 'arena> = Assign_exprContext<'input, 'arena>;
+pub type Assign_exprContextAll<'input, 'arena, Tok = CommonToken<'input>> = Assign_exprContext<'input, 'arena, Tok>;
 
-pub type Assign_exprContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Assign_exprContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Assign_exprContextExt<'input, 'arena> {
+pub type Assign_exprContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Assign_exprContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Assign_exprContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub ty_id: TyId,
-	pub var: Option<&'arena VarContextAll<'input, 'arena>>,
+	pub var: Option<&'arena VarContextAll<'input, 'arena, Tok>>,
 	pub ASSIGN: Option<&'arena dyn Token >,
-	pub expr: Option<&'arena ExprContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub expr: Option<&'arena ExprContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Assign_exprContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Assign_exprContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Assign_exprContext }
 	fn get_rule_index(&self) -> usize { RULE_assign_expr }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Assign_exprContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Assign_exprContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Assign_exprContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Assign_exprContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Assign_exprContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Assign_exprContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Assign_exprContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Assign_exprContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Assign_exprContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Assign_exprContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_ty_id = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, Assign_exprContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Assign_exprContextExt {
 				ASSIGN: None, 
 				var: None, expr: None, 
 				ty_id: _init_ty_id, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Assign_exprContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Assign_exprContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_ty_id(&self) -> &TyId; 
     fn set_ty_id(&mut self,attr: TyId); 
-    fn var(&self) -> Option<&'arena VarContextAll<'input, 'arena>>;
+    fn var(&self) -> Option<&'arena VarContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token ASSIGN
     /// Returns `None` if there is no child corresponding to token ASSIGN
-    fn ASSIGN(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena>>;
+    fn ASSIGN(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Assign_exprContextAttrs<'input, 'arena> for Assign_exprContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Assign_exprContextAttrs<'input, 'arena, Tok> for Assign_exprContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     fn get_ty_id(&self) -> &TyId { &self.deref().ty_id }  
     fn set_ty_id(&mut self,attr: TyId) { self.deref_mut().ty_id = attr; }  
-    fn var(&self) -> Option<&'arena VarContextAll<'input, 'arena>> {
+    fn var(&self) -> Option<&'arena VarContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token ASSIGN
     /// Returns `None` if there is no child corresponding to token ASSIGN
-    fn ASSIGN(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_ASSIGN, 0)
+    fn ASSIGN(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_ASSIGN)
     }
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena>> {
+    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -3744,11 +4059,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn assign_expr(&mut self,) -> Result<&'arena Assign_exprContextAll<'input, 'arena>, ANTLRError> {
+	pub fn assign_expr(&mut self,) -> Result<&'arena Assign_exprContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Assign_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 48, RULE_assign_expr)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Assign_exprContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Assign_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 48, RULE_assign_expr)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Assign_exprContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			/*------- Outer Most Alt 1 -------*/
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -3756,21 +4072,21 @@ where
 			/*InvokeRule var*/
 			recog.base.set_state(267);
 			let tmp = recog.var()?;
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Assign_exprContext>().unwrap().var = Some(tmp); } 
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Assign_exprContext<TF::Tok>>().unwrap().var = Some(tmp); } 
 			recog.base.set_state(268);
 			let tmp = recog.base.match_token(CFood_ASSIGN,&mut recog.err_handler)?;
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Assign_exprContext>().unwrap().ASSIGN = Some(tmp); } 
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Assign_exprContext<TF::Tok>>().unwrap().ASSIGN = Some(tmp); } 
 			/*InvokeRule expr*/
 			recog.base.set_state(269);
 			let tmp = recog.expr()?;
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Assign_exprContext>().unwrap().expr = Some(tmp); } 
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Assign_exprContext<TF::Tok>>().unwrap().expr = Some(tmp); } 
 
-			        let tmp = { *recog.ctx().unwrap().as_rule_context::<Assign_exprContext>().unwrap().var.as_ref().unwrap().get_ty_id()}.to_owned();
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Assign_exprContext>().unwrap().set_ty_id(tmp); }
+			        let tmp = { *recog.ctx().unwrap().as_rule_context::<Assign_exprContext<TF::Tok>>().unwrap().var.as_ref().unwrap().get_ty_id()}.to_owned();
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Assign_exprContext<TF::Tok>>().unwrap().set_ty_id(tmp); }
 
-			        let bound = *recog.ctx().unwrap().as_rule_context::<Assign_exprContext>().unwrap().var.as_ref().unwrap().get_ty_id();
-			        let expr = *recog.ctx().unwrap().as_rule_context::<Assign_exprContext>().unwrap().expr.as_ref().unwrap().get_ty_id();
-			        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Assign_exprContext>().unwrap().ASSIGN { it.get_line() } else { 0 } ;
+			        let bound = *recog.ctx().unwrap().as_rule_context::<Assign_exprContext<TF::Tok>>().unwrap().var.as_ref().unwrap().get_ty_id();
+			        let expr = *recog.ctx().unwrap().as_rule_context::<Assign_exprContext<TF::Tok>>().unwrap().expr.as_ref().unwrap().get_ty_id();
+			        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Assign_exprContext<TF::Tok>>().unwrap().ASSIGN { it.get_line() } else { 0 } ;
 			        recog.tlt.assert_ty_id(bound, expr, line);
 			    
 			}
@@ -3785,75 +4101,88 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- var ----------------
-pub type VarContextAll<'input, 'arena> = VarContext<'input, 'arena>;
+pub type VarContextAll<'input, 'arena, Tok = CommonToken<'input>> = VarContext<'input, 'arena, Tok>;
 
-pub type VarContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, VarContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct VarContextExt<'input, 'arena> {
+pub type VarContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, VarContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct VarContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub ty_id: TyId,
 	pub IDENT: Option<&'arena dyn Token >,
-	pub expr: Option<&'arena ExprContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub expr: Option<&'arena ExprContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for VarContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for VarContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::VarContext }
 	fn get_rule_index(&self) -> usize { RULE_var }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::VarContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: VarContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a VarContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => VarContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::VarContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut VarContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut VarContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> VarContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> VarContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> VarContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_ty_id = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, VarContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, VarContextExt {
 				IDENT: None, 
 				expr: None, 
 				ty_id: _init_ty_id, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait VarContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait VarContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_ty_id(&self) -> &TyId; 
     fn set_ty_id(&mut self,attr: TyId); 
     /// Retrieves first TerminalNode corresponding to token IDENT
     /// Returns `None` if there is no child corresponding to token IDENT
-    fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token BRACKET_L
     /// Returns `None` if there is no child corresponding to token BRACKET_L
-    fn BRACKET_L(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena>>;
+    fn BRACKET_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token BRACKET_R
     /// Returns `None` if there is no child corresponding to token BRACKET_R
-    fn BRACKET_R(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn BRACKET_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> VarContextAttrs<'input, 'arena> for VarContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> VarContextAttrs<'input, 'arena, Tok> for VarContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
@@ -3861,21 +4190,21 @@ where
     fn set_ty_id(&mut self,attr: TyId) { self.deref_mut().ty_id = attr; }  
     /// Retrieves first TerminalNode corresponding to token IDENT
     /// Returns `None` if there is no child corresponding to token IDENT
-    fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_IDENT, 0)
+    fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_IDENT)
     }
     /// Retrieves first TerminalNode corresponding to token BRACKET_L
     /// Returns `None` if there is no child corresponding to token BRACKET_L
-    fn BRACKET_L(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_BRACKET_L, 0)
+    fn BRACKET_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_BRACKET_L)
     }
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena>> {
+    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token BRACKET_R
     /// Returns `None` if there is no child corresponding to token BRACKET_R
-    fn BRACKET_R(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_BRACKET_R, 0)
+    fn BRACKET_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_BRACKET_R)
     }
 }
 
@@ -3885,27 +4214,28 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn var(&mut self,) -> Result<&'arena VarContextAll<'input, 'arena>, ANTLRError> {
+	pub fn var(&mut self,) -> Result<&'arena VarContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(VarContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 50, RULE_var)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena VarContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(VarContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 50, RULE_var)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena VarContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(280);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.interpreter.adaptive_predict(16,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(16,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 					{
 					recog.base.set_state(272);
 					let tmp = recog.base.match_token(CFood_IDENT,&mut recog.err_handler)?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<VarContext>().unwrap().IDENT = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<VarContext<TF::Tok>>().unwrap().IDENT = Some(tmp); } 
 
-					        let name = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<VarContext>().unwrap().IDENT { it.get_text() } else { "null" } ;
-					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<VarContext>().unwrap().IDENT { it.get_line() } else { 0 } ;
+					        let name = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<VarContext<TF::Tok>>().unwrap().IDENT { it.get_text() } else { "null" } ;
+					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<VarContext<TF::Tok>>().unwrap().IDENT { it.get_line() } else { 0 } ;
 					        let tmp = { recog.tlt.var(name, line)}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<VarContext>().unwrap().set_ty_id(tmp); }
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<VarContext<TF::Tok>>().unwrap().set_ty_id(tmp); }
 					    
 					}
 				}
@@ -3916,23 +4246,23 @@ where
 					{
 					recog.base.set_state(274);
 					let tmp = recog.base.match_token(CFood_IDENT,&mut recog.err_handler)?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<VarContext>().unwrap().IDENT = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<VarContext<TF::Tok>>().unwrap().IDENT = Some(tmp); } 
 					recog.base.set_state(275);
 					recog.base.match_token(CFood_BRACKET_L,&mut recog.err_handler)?;
 					/*InvokeRule expr*/
 					recog.base.set_state(276);
 					let tmp = recog.expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<VarContext>().unwrap().expr = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<VarContext<TF::Tok>>().unwrap().expr = Some(tmp); } 
 					recog.base.set_state(277);
 					recog.base.match_token(CFood_BRACKET_R,&mut recog.err_handler)?;
 
-					        let name = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<VarContext>().unwrap().IDENT { it.get_text() } else { "null" } ;
-					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<VarContext>().unwrap().IDENT { it.get_line() } else { 0 } ;
+					        let name = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<VarContext<TF::Tok>>().unwrap().IDENT { it.get_text() } else { "null" } ;
+					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<VarContext<TF::Tok>>().unwrap().IDENT { it.get_line() } else { 0 } ;
 					        let tmp = { recog.tlt.var_arr(name, line)}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<VarContext>().unwrap().set_ty_id(tmp); }
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<VarContext<TF::Tok>>().unwrap().set_ty_id(tmp); }
 
 					        let bound = recog.tlt.new_ty(Ty::int());
-					        let expr = *recog.ctx().unwrap().as_rule_context::<VarContext>().unwrap().expr.as_ref().unwrap().get_ty_id();
+					        let expr = *recog.ctx().unwrap().as_rule_context::<VarContext<TF::Tok>>().unwrap().expr.as_ref().unwrap().get_ty_id();
 					        recog.tlt.assert_ty_id(bound, expr, line);
 					    
 					}
@@ -3951,81 +4281,94 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- calc_expr ----------------
-pub type Calc_exprContextAll<'input, 'arena> = Calc_exprContext<'input, 'arena>;
+pub type Calc_exprContextAll<'input, 'arena, Tok = CommonToken<'input>> = Calc_exprContext<'input, 'arena, Tok>;
 
-pub type Calc_exprContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Calc_exprContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Calc_exprContextExt<'input, 'arena> {
+pub type Calc_exprContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Calc_exprContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Calc_exprContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub ty_id: TyId,
-	pub lhs: Option<&'arena Call_preced_exprContextAll<'input, 'arena>>,
-	pub cmp_preced_op: Option<&'arena Cmp_preced_opContextAll<'input, 'arena>>,
-	pub rhs: Option<&'arena Call_preced_exprContextAll<'input, 'arena>>,
-	pub call_preced_expr: Option<&'arena Call_preced_exprContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub lhs: Option<&'arena Call_preced_exprContextAll<'input, 'arena, Tok>>,
+	pub cmp_preced_op: Option<&'arena Cmp_preced_opContextAll<'input, 'arena, Tok>>,
+	pub rhs: Option<&'arena Call_preced_exprContextAll<'input, 'arena, Tok>>,
+	pub call_preced_expr: Option<&'arena Call_preced_exprContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Calc_exprContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Calc_exprContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Calc_exprContext }
 	fn get_rule_index(&self) -> usize { RULE_calc_expr }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Calc_exprContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Calc_exprContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Calc_exprContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Calc_exprContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Calc_exprContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Calc_exprContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Calc_exprContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Calc_exprContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Calc_exprContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Calc_exprContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_ty_id = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, Calc_exprContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Calc_exprContextExt {
 				lhs: None, cmp_preced_op: None, rhs: None, call_preced_expr: None, 
 				ty_id: _init_ty_id, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Calc_exprContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Calc_exprContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_ty_id(&self) -> &TyId; 
     fn set_ty_id(&mut self,attr: TyId); 
-    fn cmp_preced_op(&self) -> Option<&'arena Cmp_preced_opContextAll<'input, 'arena>>;
-    fn call_preced_expr_all(&self) -> Vec<&'arena Call_preced_exprContextAll<'input, 'arena>>;
-    fn call_preced_expr(&self, i: usize) -> Option<&'arena Call_preced_exprContextAll<'input, 'arena>>;
+    fn cmp_preced_op(&self) -> Option<&'arena Cmp_preced_opContextAll<'input, 'arena, Tok>>;
+    fn call_preced_expr_all(&self) -> Vec<&'arena Call_preced_exprContextAll<'input, 'arena, Tok>>;
+    fn call_preced_expr(&self, i: usize) -> Option<&'arena Call_preced_exprContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Calc_exprContextAttrs<'input, 'arena> for Calc_exprContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Calc_exprContextAttrs<'input, 'arena, Tok> for Calc_exprContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     fn get_ty_id(&self) -> &TyId { &self.deref().ty_id }  
     fn set_ty_id(&mut self,attr: TyId) { self.deref_mut().ty_id = attr; }  
-    fn cmp_preced_op(&self) -> Option<&'arena Cmp_preced_opContextAll<'input, 'arena>> {
+    fn cmp_preced_op(&self) -> Option<&'arena Cmp_preced_opContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn call_preced_expr_all(&self) -> Vec<&'arena Call_preced_exprContextAll<'input, 'arena>> {
+    fn call_preced_expr_all(&self) -> Vec<&'arena Call_preced_exprContextAll<'input, 'arena, Tok>> {
         self.children_of_type()
     }
-    fn call_preced_expr(&self, i: usize) -> Option<&'arena Call_preced_exprContextAll<'input, 'arena>> {
+    fn call_preced_expr(&self, i: usize) -> Option<&'arena Call_preced_exprContextAll<'input, 'arena, Tok>> {
         self.child_of_type(i)
     }
 }
@@ -4036,15 +4379,16 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn calc_expr(&mut self,) -> Result<&'arena Calc_exprContextAll<'input, 'arena>, ANTLRError> {
+	pub fn calc_expr(&mut self,) -> Result<&'arena Calc_exprContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Calc_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 52, RULE_calc_expr)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Calc_exprContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Calc_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 52, RULE_calc_expr)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Calc_exprContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(290);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.interpreter.adaptive_predict(17,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(17,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -4052,21 +4396,21 @@ where
 					/*InvokeRule call_preced_expr*/
 					recog.base.set_state(282);
 					let tmp = recog.call_preced_expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Calc_exprContext>().unwrap().lhs = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Calc_exprContext<TF::Tok>>().unwrap().lhs = Some(tmp); } 
 					/*InvokeRule cmp_preced_op*/
 					recog.base.set_state(283);
 					let tmp = recog.cmp_preced_op()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Calc_exprContext>().unwrap().cmp_preced_op = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Calc_exprContext<TF::Tok>>().unwrap().cmp_preced_op = Some(tmp); } 
 					/*InvokeRule call_preced_expr*/
 					recog.base.set_state(284);
 					let tmp = recog.call_preced_expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Calc_exprContext>().unwrap().rhs = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Calc_exprContext<TF::Tok>>().unwrap().rhs = Some(tmp); } 
 
-					        let lhs= *recog.ctx().unwrap().as_rule_context::<Calc_exprContext>().unwrap().lhs.as_ref().unwrap().get_ty_id();
-					        let rhs = *recog.ctx().unwrap().as_rule_context::<Calc_exprContext>().unwrap().rhs.as_ref().unwrap().get_ty_id();
-					        let line = *recog.ctx().unwrap().as_rule_context::<Calc_exprContext>().unwrap().cmp_preced_op.as_ref().unwrap().get_line();
+					        let lhs= *recog.ctx().unwrap().as_rule_context::<Calc_exprContext<TF::Tok>>().unwrap().lhs.as_ref().unwrap().get_ty_id();
+					        let rhs = *recog.ctx().unwrap().as_rule_context::<Calc_exprContext<TF::Tok>>().unwrap().rhs.as_ref().unwrap().get_ty_id();
+					        let line = *recog.ctx().unwrap().as_rule_context::<Calc_exprContext<TF::Tok>>().unwrap().cmp_preced_op.as_ref().unwrap().get_line();
 					        let tmp = { recog.tlt.cmp_op(lhs, rhs, line)}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Calc_exprContext>().unwrap().set_ty_id(tmp); }
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Calc_exprContext<TF::Tok>>().unwrap().set_ty_id(tmp); }
 					    
 					}
 				}
@@ -4078,9 +4422,9 @@ where
 					/*InvokeRule call_preced_expr*/
 					recog.base.set_state(287);
 					let tmp = recog.call_preced_expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Calc_exprContext>().unwrap().call_preced_expr = Some(tmp); } 
-					 let tmp = { recog.ctx().unwrap().as_rule_context::<Calc_exprContext>().unwrap().call_preced_expr.as_ref().unwrap().get_ty_id()}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Calc_exprContext>().unwrap().set_ty_id(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Calc_exprContext<TF::Tok>>().unwrap().call_preced_expr = Some(tmp); } 
+					 let tmp = { recog.ctx().unwrap().as_rule_context::<Calc_exprContext<TF::Tok>>().unwrap().call_preced_expr.as_ref().unwrap().get_ty_id()}.to_owned();
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Calc_exprContext<TF::Tok>>().unwrap().set_ty_id(tmp); } 
 					}
 				}
 
@@ -4097,75 +4441,88 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- call_preced_expr ----------------
-pub type Call_preced_exprContextAll<'input, 'arena> = Call_preced_exprContext<'input, 'arena>;
+pub type Call_preced_exprContextAll<'input, 'arena, Tok = CommonToken<'input>> = Call_preced_exprContext<'input, 'arena, Tok>;
 
-pub type Call_preced_exprContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Call_preced_exprContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Call_preced_exprContextExt<'input, 'arena> {
+pub type Call_preced_exprContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Call_preced_exprContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Call_preced_exprContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub ty_id: TyId,
-	pub add_preced_expr: Option<&'arena Add_preced_exprContextAll<'input, 'arena>>,
-	pub call_preced_expr: Option<&'arena Call_preced_exprContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub add_preced_expr: Option<&'arena Add_preced_exprContextAll<'input, 'arena, Tok>>,
+	pub call_preced_expr: Option<&'arena Call_preced_exprContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Call_preced_exprContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Call_preced_exprContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Call_preced_exprContext }
 	fn get_rule_index(&self) -> usize { RULE_call_preced_expr }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Call_preced_exprContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Call_preced_exprContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Call_preced_exprContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Call_preced_exprContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Call_preced_exprContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Call_preced_exprContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Call_preced_exprContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Call_preced_exprContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Call_preced_exprContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Call_preced_exprContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_ty_id = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, Call_preced_exprContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Call_preced_exprContextExt {
 				add_preced_expr: None, call_preced_expr: None, 
 				ty_id: _init_ty_id, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Call_preced_exprContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Call_preced_exprContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_ty_id(&self) -> &TyId; 
     fn set_ty_id(&mut self,attr: TyId); 
-    fn add_preced_expr(&self) -> Option<&'arena Add_preced_exprContextAll<'input, 'arena>>;
-    fn call_preced_expr(&self) -> Option<&'arena Call_preced_exprContextAll<'input, 'arena>>;
+    fn add_preced_expr(&self) -> Option<&'arena Add_preced_exprContextAll<'input, 'arena, Tok>>;
+    fn call_preced_expr(&self) -> Option<&'arena Call_preced_exprContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Call_preced_exprContextAttrs<'input, 'arena> for Call_preced_exprContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Call_preced_exprContextAttrs<'input, 'arena, Tok> for Call_preced_exprContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     fn get_ty_id(&self) -> &TyId { &self.deref().ty_id }  
     fn set_ty_id(&mut self,attr: TyId) { self.deref_mut().ty_id = attr; }  
-    fn add_preced_expr(&self) -> Option<&'arena Add_preced_exprContextAll<'input, 'arena>> {
+    fn add_preced_expr(&self) -> Option<&'arena Add_preced_exprContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn call_preced_expr(&self) -> Option<&'arena Call_preced_exprContextAll<'input, 'arena>> {
+    fn call_preced_expr(&self) -> Option<&'arena Call_preced_exprContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -4176,15 +4533,16 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn call_preced_expr(&mut self,) -> Result<&'arena Call_preced_exprContextAll<'input, 'arena>, ANTLRError> {
+	pub fn call_preced_expr(&mut self,) -> Result<&'arena Call_preced_exprContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Call_preced_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 54, RULE_call_preced_expr)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Call_preced_exprContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Call_preced_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 54, RULE_call_preced_expr)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Call_preced_exprContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(299);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.interpreter.adaptive_predict(18,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(18,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -4192,17 +4550,17 @@ where
 					/*InvokeRule add_preced_expr*/
 					recog.base.set_state(292);
 					let tmp = recog.add_preced_expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Call_preced_exprContext>().unwrap().add_preced_expr = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Call_preced_exprContext<TF::Tok>>().unwrap().add_preced_expr = Some(tmp); } 
 					/*InvokeRule call_preced_expr*/
 					recog.base.set_state(293);
 					let tmp = recog.call_preced_expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Call_preced_exprContext>().unwrap().call_preced_expr = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Call_preced_exprContext<TF::Tok>>().unwrap().call_preced_expr = Some(tmp); } 
 
-					        let expr = *recog.ctx().unwrap().as_rule_context::<Call_preced_exprContext>().unwrap().add_preced_expr.as_ref().unwrap().get_ty_id();
-					        let call = *recog.ctx().unwrap().as_rule_context::<Call_preced_exprContext>().unwrap().call_preced_expr.as_ref().unwrap().get_ty_id();
+					        let expr = *recog.ctx().unwrap().as_rule_context::<Call_preced_exprContext<TF::Tok>>().unwrap().add_preced_expr.as_ref().unwrap().get_ty_id();
+					        let call = *recog.ctx().unwrap().as_rule_context::<Call_preced_exprContext<TF::Tok>>().unwrap().call_preced_expr.as_ref().unwrap().get_ty_id();
 					        let line = recog.get_current_context().start().get_line();
 					        let tmp = { recog.tlt.apply(expr, call, line)}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Call_preced_exprContext>().unwrap().set_ty_id(tmp); }
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Call_preced_exprContext<TF::Tok>>().unwrap().set_ty_id(tmp); }
 					    
 					}
 				}
@@ -4214,9 +4572,9 @@ where
 					/*InvokeRule add_preced_expr*/
 					recog.base.set_state(296);
 					let tmp = recog.add_preced_expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Call_preced_exprContext>().unwrap().add_preced_expr = Some(tmp); } 
-					 let tmp = { recog.ctx().unwrap().as_rule_context::<Call_preced_exprContext>().unwrap().add_preced_expr.as_ref().unwrap().get_ty_id()}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Call_preced_exprContext>().unwrap().set_ty_id(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Call_preced_exprContext<TF::Tok>>().unwrap().add_preced_expr = Some(tmp); } 
+					 let tmp = { recog.ctx().unwrap().as_rule_context::<Call_preced_exprContext<TF::Tok>>().unwrap().add_preced_expr.as_ref().unwrap().get_ty_id()}.to_owned();
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Call_preced_exprContext<TF::Tok>>().unwrap().set_ty_id(tmp); } 
 					}
 				}
 
@@ -4233,80 +4591,93 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- add_preced_expr ----------------
-pub type Add_preced_exprContextAll<'input, 'arena> = Add_preced_exprContext<'input, 'arena>;
+pub type Add_preced_exprContextAll<'input, 'arena, Tok = CommonToken<'input>> = Add_preced_exprContext<'input, 'arena, Tok>;
 
-pub type Add_preced_exprContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Add_preced_exprContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Add_preced_exprContextExt<'input, 'arena> {
+pub type Add_preced_exprContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Add_preced_exprContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Add_preced_exprContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub ty_id: TyId,
-	pub mul_preced_expr: Option<&'arena Mul_preced_exprContextAll<'input, 'arena>>,
-	pub add_preced_op: Option<&'arena Add_preced_opContextAll<'input, 'arena>>,
-	pub add_preced_expr: Option<&'arena Add_preced_exprContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub mul_preced_expr: Option<&'arena Mul_preced_exprContextAll<'input, 'arena, Tok>>,
+	pub add_preced_op: Option<&'arena Add_preced_opContextAll<'input, 'arena, Tok>>,
+	pub add_preced_expr: Option<&'arena Add_preced_exprContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Add_preced_exprContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Add_preced_exprContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Add_preced_exprContext }
 	fn get_rule_index(&self) -> usize { RULE_add_preced_expr }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Add_preced_exprContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Add_preced_exprContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Add_preced_exprContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Add_preced_exprContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Add_preced_exprContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Add_preced_exprContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Add_preced_exprContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Add_preced_exprContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Add_preced_exprContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Add_preced_exprContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_ty_id = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, Add_preced_exprContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Add_preced_exprContextExt {
 				mul_preced_expr: None, add_preced_op: None, add_preced_expr: None, 
 				ty_id: _init_ty_id, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Add_preced_exprContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Add_preced_exprContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_ty_id(&self) -> &TyId; 
     fn set_ty_id(&mut self,attr: TyId); 
-    fn mul_preced_expr(&self) -> Option<&'arena Mul_preced_exprContextAll<'input, 'arena>>;
-    fn add_preced_op(&self) -> Option<&'arena Add_preced_opContextAll<'input, 'arena>>;
-    fn add_preced_expr(&self) -> Option<&'arena Add_preced_exprContextAll<'input, 'arena>>;
+    fn mul_preced_expr(&self) -> Option<&'arena Mul_preced_exprContextAll<'input, 'arena, Tok>>;
+    fn add_preced_op(&self) -> Option<&'arena Add_preced_opContextAll<'input, 'arena, Tok>>;
+    fn add_preced_expr(&self) -> Option<&'arena Add_preced_exprContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Add_preced_exprContextAttrs<'input, 'arena> for Add_preced_exprContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Add_preced_exprContextAttrs<'input, 'arena, Tok> for Add_preced_exprContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     fn get_ty_id(&self) -> &TyId { &self.deref().ty_id }  
     fn set_ty_id(&mut self,attr: TyId) { self.deref_mut().ty_id = attr; }  
-    fn mul_preced_expr(&self) -> Option<&'arena Mul_preced_exprContextAll<'input, 'arena>> {
+    fn mul_preced_expr(&self) -> Option<&'arena Mul_preced_exprContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn add_preced_op(&self) -> Option<&'arena Add_preced_opContextAll<'input, 'arena>> {
+    fn add_preced_op(&self) -> Option<&'arena Add_preced_opContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn add_preced_expr(&self) -> Option<&'arena Add_preced_exprContextAll<'input, 'arena>> {
+    fn add_preced_expr(&self) -> Option<&'arena Add_preced_exprContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -4317,15 +4688,16 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn add_preced_expr(&mut self,) -> Result<&'arena Add_preced_exprContextAll<'input, 'arena>, ANTLRError> {
+	pub fn add_preced_expr(&mut self,) -> Result<&'arena Add_preced_exprContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Add_preced_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 56, RULE_add_preced_expr)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Add_preced_exprContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Add_preced_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 56, RULE_add_preced_expr)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Add_preced_exprContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(309);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.interpreter.adaptive_predict(19,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(19,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -4333,21 +4705,21 @@ where
 					/*InvokeRule mul_preced_expr*/
 					recog.base.set_state(301);
 					let tmp = recog.mul_preced_expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_exprContext>().unwrap().mul_preced_expr = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_exprContext<TF::Tok>>().unwrap().mul_preced_expr = Some(tmp); } 
 					/*InvokeRule add_preced_op*/
 					recog.base.set_state(302);
 					let tmp = recog.add_preced_op()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_exprContext>().unwrap().add_preced_op = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_exprContext<TF::Tok>>().unwrap().add_preced_op = Some(tmp); } 
 					/*InvokeRule add_preced_expr*/
 					recog.base.set_state(303);
 					let tmp = recog.add_preced_expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_exprContext>().unwrap().add_preced_expr = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_exprContext<TF::Tok>>().unwrap().add_preced_expr = Some(tmp); } 
 
-					        let lhs = *recog.ctx().unwrap().as_rule_context::<Add_preced_exprContext>().unwrap().mul_preced_expr.as_ref().unwrap().get_ty_id();
-					        let rhs = *recog.ctx().unwrap().as_rule_context::<Add_preced_exprContext>().unwrap().add_preced_expr.as_ref().unwrap().get_ty_id();
-					        let line = *recog.ctx().unwrap().as_rule_context::<Add_preced_exprContext>().unwrap().add_preced_op.as_ref().unwrap().get_line();
+					        let lhs = *recog.ctx().unwrap().as_rule_context::<Add_preced_exprContext<TF::Tok>>().unwrap().mul_preced_expr.as_ref().unwrap().get_ty_id();
+					        let rhs = *recog.ctx().unwrap().as_rule_context::<Add_preced_exprContext<TF::Tok>>().unwrap().add_preced_expr.as_ref().unwrap().get_ty_id();
+					        let line = *recog.ctx().unwrap().as_rule_context::<Add_preced_exprContext<TF::Tok>>().unwrap().add_preced_op.as_ref().unwrap().get_line();
 					        let tmp = { recog.tlt.binary_op(lhs, rhs, line)}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_exprContext>().unwrap().set_ty_id(tmp); }
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_exprContext<TF::Tok>>().unwrap().set_ty_id(tmp); }
 					    
 					}
 				}
@@ -4359,9 +4731,9 @@ where
 					/*InvokeRule mul_preced_expr*/
 					recog.base.set_state(306);
 					let tmp = recog.mul_preced_expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_exprContext>().unwrap().mul_preced_expr = Some(tmp); } 
-					 let tmp = { *recog.ctx().unwrap().as_rule_context::<Add_preced_exprContext>().unwrap().mul_preced_expr.as_ref().unwrap().get_ty_id()}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_exprContext>().unwrap().set_ty_id(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_exprContext<TF::Tok>>().unwrap().mul_preced_expr = Some(tmp); } 
+					 let tmp = { *recog.ctx().unwrap().as_rule_context::<Add_preced_exprContext<TF::Tok>>().unwrap().mul_preced_expr.as_ref().unwrap().get_ty_id()}.to_owned();
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_exprContext<TF::Tok>>().unwrap().set_ty_id(tmp); } 
 					}
 				}
 
@@ -4378,80 +4750,93 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- mul_preced_expr ----------------
-pub type Mul_preced_exprContextAll<'input, 'arena> = Mul_preced_exprContext<'input, 'arena>;
+pub type Mul_preced_exprContextAll<'input, 'arena, Tok = CommonToken<'input>> = Mul_preced_exprContext<'input, 'arena, Tok>;
 
-pub type Mul_preced_exprContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Mul_preced_exprContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Mul_preced_exprContextExt<'input, 'arena> {
+pub type Mul_preced_exprContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Mul_preced_exprContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Mul_preced_exprContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub ty_id: TyId,
-	pub atom_preced_expr: Option<&'arena Atom_preced_exprContextAll<'input, 'arena>>,
-	pub mul_preced_op: Option<&'arena Mul_preced_opContextAll<'input, 'arena>>,
-	pub mul_preced_expr: Option<&'arena Mul_preced_exprContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub atom_preced_expr: Option<&'arena Atom_preced_exprContextAll<'input, 'arena, Tok>>,
+	pub mul_preced_op: Option<&'arena Mul_preced_opContextAll<'input, 'arena, Tok>>,
+	pub mul_preced_expr: Option<&'arena Mul_preced_exprContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Mul_preced_exprContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Mul_preced_exprContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Mul_preced_exprContext }
 	fn get_rule_index(&self) -> usize { RULE_mul_preced_expr }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Mul_preced_exprContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Mul_preced_exprContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Mul_preced_exprContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Mul_preced_exprContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Mul_preced_exprContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Mul_preced_exprContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Mul_preced_exprContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Mul_preced_exprContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Mul_preced_exprContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Mul_preced_exprContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_ty_id = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, Mul_preced_exprContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Mul_preced_exprContextExt {
 				atom_preced_expr: None, mul_preced_op: None, mul_preced_expr: None, 
 				ty_id: _init_ty_id, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Mul_preced_exprContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Mul_preced_exprContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_ty_id(&self) -> &TyId; 
     fn set_ty_id(&mut self,attr: TyId); 
-    fn atom_preced_expr(&self) -> Option<&'arena Atom_preced_exprContextAll<'input, 'arena>>;
-    fn mul_preced_op(&self) -> Option<&'arena Mul_preced_opContextAll<'input, 'arena>>;
-    fn mul_preced_expr(&self) -> Option<&'arena Mul_preced_exprContextAll<'input, 'arena>>;
+    fn atom_preced_expr(&self) -> Option<&'arena Atom_preced_exprContextAll<'input, 'arena, Tok>>;
+    fn mul_preced_op(&self) -> Option<&'arena Mul_preced_opContextAll<'input, 'arena, Tok>>;
+    fn mul_preced_expr(&self) -> Option<&'arena Mul_preced_exprContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Mul_preced_exprContextAttrs<'input, 'arena> for Mul_preced_exprContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Mul_preced_exprContextAttrs<'input, 'arena, Tok> for Mul_preced_exprContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     fn get_ty_id(&self) -> &TyId { &self.deref().ty_id }  
     fn set_ty_id(&mut self,attr: TyId) { self.deref_mut().ty_id = attr; }  
-    fn atom_preced_expr(&self) -> Option<&'arena Atom_preced_exprContextAll<'input, 'arena>> {
+    fn atom_preced_expr(&self) -> Option<&'arena Atom_preced_exprContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn mul_preced_op(&self) -> Option<&'arena Mul_preced_opContextAll<'input, 'arena>> {
+    fn mul_preced_op(&self) -> Option<&'arena Mul_preced_opContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn mul_preced_expr(&self) -> Option<&'arena Mul_preced_exprContextAll<'input, 'arena>> {
+    fn mul_preced_expr(&self) -> Option<&'arena Mul_preced_exprContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -4462,15 +4847,16 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn mul_preced_expr(&mut self,) -> Result<&'arena Mul_preced_exprContextAll<'input, 'arena>, ANTLRError> {
+	pub fn mul_preced_expr(&mut self,) -> Result<&'arena Mul_preced_exprContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Mul_preced_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 58, RULE_mul_preced_expr)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Mul_preced_exprContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Mul_preced_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 58, RULE_mul_preced_expr)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Mul_preced_exprContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(319);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.interpreter.adaptive_predict(20,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(20,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -4478,21 +4864,21 @@ where
 					/*InvokeRule atom_preced_expr*/
 					recog.base.set_state(311);
 					let tmp = recog.atom_preced_expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_exprContext>().unwrap().atom_preced_expr = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_exprContext<TF::Tok>>().unwrap().atom_preced_expr = Some(tmp); } 
 					/*InvokeRule mul_preced_op*/
 					recog.base.set_state(312);
 					let tmp = recog.mul_preced_op()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_exprContext>().unwrap().mul_preced_op = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_exprContext<TF::Tok>>().unwrap().mul_preced_op = Some(tmp); } 
 					/*InvokeRule mul_preced_expr*/
 					recog.base.set_state(313);
 					let tmp = recog.mul_preced_expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_exprContext>().unwrap().mul_preced_expr = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_exprContext<TF::Tok>>().unwrap().mul_preced_expr = Some(tmp); } 
 
-					        let lhs = *recog.ctx().unwrap().as_rule_context::<Mul_preced_exprContext>().unwrap().atom_preced_expr.as_ref().unwrap().get_ty_id();
-					        let rhs = *recog.ctx().unwrap().as_rule_context::<Mul_preced_exprContext>().unwrap().mul_preced_expr.as_ref().unwrap().get_ty_id();
-					        let line = *recog.ctx().unwrap().as_rule_context::<Mul_preced_exprContext>().unwrap().mul_preced_op.as_ref().unwrap().get_line();
+					        let lhs = *recog.ctx().unwrap().as_rule_context::<Mul_preced_exprContext<TF::Tok>>().unwrap().atom_preced_expr.as_ref().unwrap().get_ty_id();
+					        let rhs = *recog.ctx().unwrap().as_rule_context::<Mul_preced_exprContext<TF::Tok>>().unwrap().mul_preced_expr.as_ref().unwrap().get_ty_id();
+					        let line = *recog.ctx().unwrap().as_rule_context::<Mul_preced_exprContext<TF::Tok>>().unwrap().mul_preced_op.as_ref().unwrap().get_line();
 					        let tmp = { recog.tlt.binary_op(lhs, rhs, line)}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_exprContext>().unwrap().set_ty_id(tmp); }
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_exprContext<TF::Tok>>().unwrap().set_ty_id(tmp); }
 					    
 					}
 				}
@@ -4504,9 +4890,9 @@ where
 					/*InvokeRule atom_preced_expr*/
 					recog.base.set_state(316);
 					let tmp = recog.atom_preced_expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_exprContext>().unwrap().atom_preced_expr = Some(tmp); } 
-					 let tmp = { *recog.ctx().unwrap().as_rule_context::<Mul_preced_exprContext>().unwrap().atom_preced_expr.as_ref().unwrap().get_ty_id()}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_exprContext>().unwrap().set_ty_id(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_exprContext<TF::Tok>>().unwrap().atom_preced_expr = Some(tmp); } 
+					 let tmp = { *recog.ctx().unwrap().as_rule_context::<Mul_preced_exprContext<TF::Tok>>().unwrap().atom_preced_expr.as_ref().unwrap().get_ty_id()}.to_owned();
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_exprContext<TF::Tok>>().unwrap().set_ty_id(tmp); } 
 					}
 				}
 
@@ -4523,80 +4909,93 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- atom_preced_expr ----------------
-pub type Atom_preced_exprContextAll<'input, 'arena> = Atom_preced_exprContext<'input, 'arena>;
+pub type Atom_preced_exprContextAll<'input, 'arena, Tok = CommonToken<'input>> = Atom_preced_exprContext<'input, 'arena, Tok>;
 
-pub type Atom_preced_exprContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Atom_preced_exprContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Atom_preced_exprContextExt<'input, 'arena> {
+pub type Atom_preced_exprContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Atom_preced_exprContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Atom_preced_exprContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub ty_id: TyId,
-	pub apply_list: Option<&'arena Apply_listContextAll<'input, 'arena>>,
-	pub var: Option<&'arena VarContextAll<'input, 'arena>>,
-	pub number: Option<&'arena NumberContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub apply_list: Option<&'arena Apply_listContextAll<'input, 'arena, Tok>>,
+	pub var: Option<&'arena VarContextAll<'input, 'arena, Tok>>,
+	pub number: Option<&'arena NumberContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Atom_preced_exprContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Atom_preced_exprContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Atom_preced_exprContext }
 	fn get_rule_index(&self) -> usize { RULE_atom_preced_expr }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Atom_preced_exprContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Atom_preced_exprContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Atom_preced_exprContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Atom_preced_exprContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Atom_preced_exprContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Atom_preced_exprContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Atom_preced_exprContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Atom_preced_exprContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Atom_preced_exprContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Atom_preced_exprContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_ty_id = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, Atom_preced_exprContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Atom_preced_exprContextExt {
 				apply_list: None, var: None, number: None, 
 				ty_id: _init_ty_id, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Atom_preced_exprContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Atom_preced_exprContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_ty_id(&self) -> &TyId; 
     fn set_ty_id(&mut self,attr: TyId); 
-    fn apply_list(&self) -> Option<&'arena Apply_listContextAll<'input, 'arena>>;
-    fn var(&self) -> Option<&'arena VarContextAll<'input, 'arena>>;
-    fn number(&self) -> Option<&'arena NumberContextAll<'input, 'arena>>;
+    fn apply_list(&self) -> Option<&'arena Apply_listContextAll<'input, 'arena, Tok>>;
+    fn var(&self) -> Option<&'arena VarContextAll<'input, 'arena, Tok>>;
+    fn number(&self) -> Option<&'arena NumberContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Atom_preced_exprContextAttrs<'input, 'arena> for Atom_preced_exprContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Atom_preced_exprContextAttrs<'input, 'arena, Tok> for Atom_preced_exprContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     fn get_ty_id(&self) -> &TyId { &self.deref().ty_id }  
     fn set_ty_id(&mut self,attr: TyId) { self.deref_mut().ty_id = attr; }  
-    fn apply_list(&self) -> Option<&'arena Apply_listContextAll<'input, 'arena>> {
+    fn apply_list(&self) -> Option<&'arena Apply_listContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn var(&self) -> Option<&'arena VarContextAll<'input, 'arena>> {
+    fn var(&self) -> Option<&'arena VarContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
-    fn number(&self) -> Option<&'arena NumberContextAll<'input, 'arena>> {
+    fn number(&self) -> Option<&'arena NumberContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -4607,11 +5006,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn atom_preced_expr(&mut self,) -> Result<&'arena Atom_preced_exprContextAll<'input, 'arena>, ANTLRError> {
+	pub fn atom_preced_expr(&mut self,) -> Result<&'arena Atom_preced_exprContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Atom_preced_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 60, RULE_atom_preced_expr)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Atom_preced_exprContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Atom_preced_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 60, RULE_atom_preced_expr)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Atom_preced_exprContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(330);
 			recog.err_handler.sync(&mut recog.base)?;
@@ -4623,9 +5023,9 @@ where
 			        /*InvokeRule apply_list*/
 			        recog.base.set_state(321);
 			        let tmp = recog.apply_list()?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Atom_preced_exprContext>().unwrap().apply_list = Some(tmp); } 
-			        let tmp = { *recog.ctx().unwrap().as_rule_context::<Atom_preced_exprContext>().unwrap().apply_list.as_ref().unwrap().get_ty_id()}.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Atom_preced_exprContext>().unwrap().set_ty_id(tmp); } 
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Atom_preced_exprContext<TF::Tok>>().unwrap().apply_list = Some(tmp); } 
+			        let tmp = { *recog.ctx().unwrap().as_rule_context::<Atom_preced_exprContext<TF::Tok>>().unwrap().apply_list.as_ref().unwrap().get_ty_id()}.to_owned();
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Atom_preced_exprContext<TF::Tok>>().unwrap().set_ty_id(tmp); } 
 			        }}
 			    CFood_IDENT  => {
 			        /*------- Outer Most Alt 2 -------*/
@@ -4634,9 +5034,9 @@ where
 			        /*InvokeRule var*/
 			        recog.base.set_state(324);
 			        let tmp = recog.var()?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Atom_preced_exprContext>().unwrap().var = Some(tmp); } 
-			         let tmp = { *recog.ctx().unwrap().as_rule_context::<Atom_preced_exprContext>().unwrap().var.as_ref().unwrap().get_ty_id()}.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Atom_preced_exprContext>().unwrap().set_ty_id(tmp); } 
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Atom_preced_exprContext<TF::Tok>>().unwrap().var = Some(tmp); } 
+			         let tmp = { *recog.ctx().unwrap().as_rule_context::<Atom_preced_exprContext<TF::Tok>>().unwrap().var.as_ref().unwrap().get_ty_id()}.to_owned();
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Atom_preced_exprContext<TF::Tok>>().unwrap().set_ty_id(tmp); } 
 			        }}
 			    CFood_INT |CFood_FLOAT  => {
 			        /*------- Outer Most Alt 3 -------*/
@@ -4645,11 +5045,11 @@ where
 			        /*InvokeRule number*/
 			        recog.base.set_state(327);
 			        let tmp = recog.number()?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Atom_preced_exprContext>().unwrap().number = Some(tmp); } 
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Atom_preced_exprContext<TF::Tok>>().unwrap().number = Some(tmp); } 
 
-			                let num = *recog.ctx().unwrap().as_rule_context::<Atom_preced_exprContext>().unwrap().number.as_ref().unwrap().get_num();
+			                let num = *recog.ctx().unwrap().as_rule_context::<Atom_preced_exprContext<TF::Tok>>().unwrap().number.as_ref().unwrap().get_num();
 			                let tmp = { recog.tlt.new_ty_from_number(num)}.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Atom_preced_exprContext>().unwrap().set_ty_id(tmp); }
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Atom_preced_exprContext<TF::Tok>>().unwrap().set_ty_id(tmp); }
 			            
 			        }}
 				_ => Err(ANTLRError::no_alt(&mut recog.base))?
@@ -4665,13 +5065,15 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- cmp_preced_op ----------------
-pub type Cmp_preced_opContextAll<'input, 'arena> = Cmp_preced_opContext<'input, 'arena>;
+pub type Cmp_preced_opContextAll<'input, 'arena, Tok = CommonToken<'input>> = Cmp_preced_opContext<'input, 'arena, Tok>;
 
-pub type Cmp_preced_opContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Cmp_preced_opContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Cmp_preced_opContextExt<'input, 'arena> {
+pub type Cmp_preced_opContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Cmp_preced_opContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Cmp_preced_opContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub line: u32,
 	pub NE: Option<&'arena dyn Token >,
 	pub EQ: Option<&'arena dyn Token >,
@@ -4679,72 +5081,83 @@ pub struct Cmp_preced_opContextExt<'input, 'arena> {
 	pub GT: Option<&'arena dyn Token >,
 	pub LE: Option<&'arena dyn Token >,
 	pub GE: Option<&'arena dyn Token >,
-    ph: PhantomData<(&'arena (), &'input ())>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Cmp_preced_opContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Cmp_preced_opContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Cmp_preced_opContext }
 	fn get_rule_index(&self) -> usize { RULE_cmp_preced_op }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Cmp_preced_opContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Cmp_preced_opContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Cmp_preced_opContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Cmp_preced_opContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Cmp_preced_opContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Cmp_preced_opContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Cmp_preced_opContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Cmp_preced_opContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Cmp_preced_opContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Cmp_preced_opContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_line = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, Cmp_preced_opContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Cmp_preced_opContextExt {
 				NE: None, EQ: None, LT: None, GT: None, LE: None, GE: None, 
 				line: _init_line, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Cmp_preced_opContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Cmp_preced_opContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_line(&self) -> &u32; 
     fn set_line(&mut self,attr: u32); 
     /// Retrieves first TerminalNode corresponding to token NE
     /// Returns `None` if there is no child corresponding to token NE
-    fn NE(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn NE(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token EQ
     /// Returns `None` if there is no child corresponding to token EQ
-    fn EQ(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn EQ(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token LT
     /// Returns `None` if there is no child corresponding to token LT
-    fn LT(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn LT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token GT
     /// Returns `None` if there is no child corresponding to token GT
-    fn GT(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn GT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token LE
     /// Returns `None` if there is no child corresponding to token LE
-    fn LE(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn LE(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token GE
     /// Returns `None` if there is no child corresponding to token GE
-    fn GE(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn GE(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Cmp_preced_opContextAttrs<'input, 'arena> for Cmp_preced_opContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Cmp_preced_opContextAttrs<'input, 'arena, Tok> for Cmp_preced_opContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
@@ -4752,33 +5165,33 @@ where
     fn set_line(&mut self,attr: u32) { self.deref_mut().line = attr; }  
     /// Retrieves first TerminalNode corresponding to token NE
     /// Returns `None` if there is no child corresponding to token NE
-    fn NE(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_NE, 0)
+    fn NE(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_NE)
     }
     /// Retrieves first TerminalNode corresponding to token EQ
     /// Returns `None` if there is no child corresponding to token EQ
-    fn EQ(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_EQ, 0)
+    fn EQ(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_EQ)
     }
     /// Retrieves first TerminalNode corresponding to token LT
     /// Returns `None` if there is no child corresponding to token LT
-    fn LT(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_LT, 0)
+    fn LT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_LT)
     }
     /// Retrieves first TerminalNode corresponding to token GT
     /// Returns `None` if there is no child corresponding to token GT
-    fn GT(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_GT, 0)
+    fn GT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_GT)
     }
     /// Retrieves first TerminalNode corresponding to token LE
     /// Returns `None` if there is no child corresponding to token LE
-    fn LE(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_LE, 0)
+    fn LE(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_LE)
     }
     /// Retrieves first TerminalNode corresponding to token GE
     /// Returns `None` if there is no child corresponding to token GE
-    fn GE(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_GE, 0)
+    fn GE(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_GE)
     }
 }
 
@@ -4788,11 +5201,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn cmp_preced_op(&mut self,) -> Result<&'arena Cmp_preced_opContextAll<'input, 'arena>, ANTLRError> {
+	pub fn cmp_preced_op(&mut self,) -> Result<&'arena Cmp_preced_opContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Cmp_preced_opContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 62, RULE_cmp_preced_op)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Cmp_preced_opContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Cmp_preced_opContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 62, RULE_cmp_preced_op)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Cmp_preced_opContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(344);
 			recog.err_handler.sync(&mut recog.base)?;
@@ -4803,9 +5217,9 @@ where
 			        {
 			        recog.base.set_state(332);
 			        let tmp = recog.base.match_token(CFood_NE,&mut recog.err_handler)?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext>().unwrap().NE = Some(tmp); } 
-			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Cmp_preced_opContext>().unwrap().NE { it.get_line() } else { 0 } }.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext>().unwrap().set_line(tmp); } 
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext<TF::Tok>>().unwrap().NE = Some(tmp); } 
+			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Cmp_preced_opContext<TF::Tok>>().unwrap().NE { it.get_line() } else { 0 } }.to_owned();
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext<TF::Tok>>().unwrap().set_line(tmp); } 
 			        }}
 			    CFood_EQ  => {
 			        /*------- Outer Most Alt 2 -------*/
@@ -4813,9 +5227,9 @@ where
 			        {
 			        recog.base.set_state(334);
 			        let tmp = recog.base.match_token(CFood_EQ,&mut recog.err_handler)?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext>().unwrap().EQ = Some(tmp); } 
-			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Cmp_preced_opContext>().unwrap().EQ { it.get_line() } else { 0 } }.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext>().unwrap().set_line(tmp); } 
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext<TF::Tok>>().unwrap().EQ = Some(tmp); } 
+			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Cmp_preced_opContext<TF::Tok>>().unwrap().EQ { it.get_line() } else { 0 } }.to_owned();
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext<TF::Tok>>().unwrap().set_line(tmp); } 
 			        }}
 			    CFood_LT  => {
 			        /*------- Outer Most Alt 3 -------*/
@@ -4823,9 +5237,9 @@ where
 			        {
 			        recog.base.set_state(336);
 			        let tmp = recog.base.match_token(CFood_LT,&mut recog.err_handler)?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext>().unwrap().LT = Some(tmp); } 
-			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Cmp_preced_opContext>().unwrap().LT { it.get_line() } else { 0 } }.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext>().unwrap().set_line(tmp); } 
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext<TF::Tok>>().unwrap().LT = Some(tmp); } 
+			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Cmp_preced_opContext<TF::Tok>>().unwrap().LT { it.get_line() } else { 0 } }.to_owned();
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext<TF::Tok>>().unwrap().set_line(tmp); } 
 			        }}
 			    CFood_GT  => {
 			        /*------- Outer Most Alt 4 -------*/
@@ -4833,9 +5247,9 @@ where
 			        {
 			        recog.base.set_state(338);
 			        let tmp = recog.base.match_token(CFood_GT,&mut recog.err_handler)?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext>().unwrap().GT = Some(tmp); } 
-			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Cmp_preced_opContext>().unwrap().GT { it.get_line() } else { 0 } }.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext>().unwrap().set_line(tmp); } 
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext<TF::Tok>>().unwrap().GT = Some(tmp); } 
+			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Cmp_preced_opContext<TF::Tok>>().unwrap().GT { it.get_line() } else { 0 } }.to_owned();
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext<TF::Tok>>().unwrap().set_line(tmp); } 
 			        }}
 			    CFood_LE  => {
 			        /*------- Outer Most Alt 5 -------*/
@@ -4843,9 +5257,9 @@ where
 			        {
 			        recog.base.set_state(340);
 			        let tmp = recog.base.match_token(CFood_LE,&mut recog.err_handler)?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext>().unwrap().LE = Some(tmp); } 
-			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Cmp_preced_opContext>().unwrap().LE { it.get_line() } else { 0 } }.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext>().unwrap().set_line(tmp); } 
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext<TF::Tok>>().unwrap().LE = Some(tmp); } 
+			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Cmp_preced_opContext<TF::Tok>>().unwrap().LE { it.get_line() } else { 0 } }.to_owned();
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext<TF::Tok>>().unwrap().set_line(tmp); } 
 			        }}
 			    CFood_GE  => {
 			        /*------- Outer Most Alt 6 -------*/
@@ -4853,9 +5267,9 @@ where
 			        {
 			        recog.base.set_state(342);
 			        let tmp = recog.base.match_token(CFood_GE,&mut recog.err_handler)?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext>().unwrap().GE = Some(tmp); } 
-			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Cmp_preced_opContext>().unwrap().GE { it.get_line() } else { 0 } }.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext>().unwrap().set_line(tmp); } 
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext<TF::Tok>>().unwrap().GE = Some(tmp); } 
+			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Cmp_preced_opContext<TF::Tok>>().unwrap().GE { it.get_line() } else { 0 } }.to_owned();
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Cmp_preced_opContext<TF::Tok>>().unwrap().set_line(tmp); } 
 			        }}
 				_ => Err(ANTLRError::no_alt(&mut recog.base))?
 			}
@@ -4870,70 +5284,83 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- add_preced_op ----------------
-pub type Add_preced_opContextAll<'input, 'arena> = Add_preced_opContext<'input, 'arena>;
+pub type Add_preced_opContextAll<'input, 'arena, Tok = CommonToken<'input>> = Add_preced_opContext<'input, 'arena, Tok>;
 
-pub type Add_preced_opContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Add_preced_opContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Add_preced_opContextExt<'input, 'arena> {
+pub type Add_preced_opContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Add_preced_opContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Add_preced_opContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub line: u32,
 	pub PLUS: Option<&'arena dyn Token >,
 	pub SUB: Option<&'arena dyn Token >,
-    ph: PhantomData<(&'arena (), &'input ())>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Add_preced_opContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Add_preced_opContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Add_preced_opContext }
 	fn get_rule_index(&self) -> usize { RULE_add_preced_op }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Add_preced_opContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Add_preced_opContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Add_preced_opContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Add_preced_opContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Add_preced_opContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Add_preced_opContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Add_preced_opContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Add_preced_opContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Add_preced_opContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Add_preced_opContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_line = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, Add_preced_opContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Add_preced_opContextExt {
 				PLUS: None, SUB: None, 
 				line: _init_line, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Add_preced_opContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Add_preced_opContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_line(&self) -> &u32; 
     fn set_line(&mut self,attr: u32); 
     /// Retrieves first TerminalNode corresponding to token PLUS
     /// Returns `None` if there is no child corresponding to token PLUS
-    fn PLUS(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn PLUS(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token SUB
     /// Returns `None` if there is no child corresponding to token SUB
-    fn SUB(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn SUB(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Add_preced_opContextAttrs<'input, 'arena> for Add_preced_opContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Add_preced_opContextAttrs<'input, 'arena, Tok> for Add_preced_opContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
@@ -4941,13 +5368,13 @@ where
     fn set_line(&mut self,attr: u32) { self.deref_mut().line = attr; }  
     /// Retrieves first TerminalNode corresponding to token PLUS
     /// Returns `None` if there is no child corresponding to token PLUS
-    fn PLUS(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_PLUS, 0)
+    fn PLUS(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_PLUS)
     }
     /// Retrieves first TerminalNode corresponding to token SUB
     /// Returns `None` if there is no child corresponding to token SUB
-    fn SUB(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_SUB, 0)
+    fn SUB(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_SUB)
     }
 }
 
@@ -4957,11 +5384,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn add_preced_op(&mut self,) -> Result<&'arena Add_preced_opContextAll<'input, 'arena>, ANTLRError> {
+	pub fn add_preced_op(&mut self,) -> Result<&'arena Add_preced_opContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Add_preced_opContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 64, RULE_add_preced_op)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Add_preced_opContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Add_preced_opContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 64, RULE_add_preced_op)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Add_preced_opContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(350);
 			recog.err_handler.sync(&mut recog.base)?;
@@ -4972,9 +5400,9 @@ where
 			        {
 			        recog.base.set_state(346);
 			        let tmp = recog.base.match_token(CFood_PLUS,&mut recog.err_handler)?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_opContext>().unwrap().PLUS = Some(tmp); } 
-			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Add_preced_opContext>().unwrap().PLUS { it.get_line() } else { 0 } }.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_opContext>().unwrap().set_line(tmp); } 
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_opContext<TF::Tok>>().unwrap().PLUS = Some(tmp); } 
+			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Add_preced_opContext<TF::Tok>>().unwrap().PLUS { it.get_line() } else { 0 } }.to_owned();
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_opContext<TF::Tok>>().unwrap().set_line(tmp); } 
 			        }}
 			    CFood_SUB  => {
 			        /*------- Outer Most Alt 2 -------*/
@@ -4982,9 +5410,9 @@ where
 			        {
 			        recog.base.set_state(348);
 			        let tmp = recog.base.match_token(CFood_SUB,&mut recog.err_handler)?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_opContext>().unwrap().SUB = Some(tmp); } 
-			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Add_preced_opContext>().unwrap().SUB { it.get_line() } else { 0 } }.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_opContext>().unwrap().set_line(tmp); } 
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_opContext<TF::Tok>>().unwrap().SUB = Some(tmp); } 
+			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Add_preced_opContext<TF::Tok>>().unwrap().SUB { it.get_line() } else { 0 } }.to_owned();
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Add_preced_opContext<TF::Tok>>().unwrap().set_line(tmp); } 
 			        }}
 				_ => Err(ANTLRError::no_alt(&mut recog.base))?
 			}
@@ -4999,74 +5427,87 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- mul_preced_op ----------------
-pub type Mul_preced_opContextAll<'input, 'arena> = Mul_preced_opContext<'input, 'arena>;
+pub type Mul_preced_opContextAll<'input, 'arena, Tok = CommonToken<'input>> = Mul_preced_opContext<'input, 'arena, Tok>;
 
-pub type Mul_preced_opContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Mul_preced_opContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Mul_preced_opContextExt<'input, 'arena> {
+pub type Mul_preced_opContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Mul_preced_opContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Mul_preced_opContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub line: u32,
 	pub MUL: Option<&'arena dyn Token >,
 	pub DIV: Option<&'arena dyn Token >,
 	pub MOD: Option<&'arena dyn Token >,
-    ph: PhantomData<(&'arena (), &'input ())>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Mul_preced_opContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Mul_preced_opContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Mul_preced_opContext }
 	fn get_rule_index(&self) -> usize { RULE_mul_preced_op }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Mul_preced_opContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Mul_preced_opContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Mul_preced_opContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Mul_preced_opContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Mul_preced_opContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Mul_preced_opContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Mul_preced_opContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Mul_preced_opContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Mul_preced_opContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Mul_preced_opContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_line = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, Mul_preced_opContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Mul_preced_opContextExt {
 				MUL: None, DIV: None, MOD: None, 
 				line: _init_line, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Mul_preced_opContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Mul_preced_opContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_line(&self) -> &u32; 
     fn set_line(&mut self,attr: u32); 
     /// Retrieves first TerminalNode corresponding to token MUL
     /// Returns `None` if there is no child corresponding to token MUL
-    fn MUL(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn MUL(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token DIV
     /// Returns `None` if there is no child corresponding to token DIV
-    fn DIV(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn DIV(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token MOD
     /// Returns `None` if there is no child corresponding to token MOD
-    fn MOD(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn MOD(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Mul_preced_opContextAttrs<'input, 'arena> for Mul_preced_opContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Mul_preced_opContextAttrs<'input, 'arena, Tok> for Mul_preced_opContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
@@ -5074,18 +5515,18 @@ where
     fn set_line(&mut self,attr: u32) { self.deref_mut().line = attr; }  
     /// Retrieves first TerminalNode corresponding to token MUL
     /// Returns `None` if there is no child corresponding to token MUL
-    fn MUL(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_MUL, 0)
+    fn MUL(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_MUL)
     }
     /// Retrieves first TerminalNode corresponding to token DIV
     /// Returns `None` if there is no child corresponding to token DIV
-    fn DIV(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_DIV, 0)
+    fn DIV(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_DIV)
     }
     /// Retrieves first TerminalNode corresponding to token MOD
     /// Returns `None` if there is no child corresponding to token MOD
-    fn MOD(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_MOD, 0)
+    fn MOD(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_MOD)
     }
 }
 
@@ -5095,11 +5536,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn mul_preced_op(&mut self,) -> Result<&'arena Mul_preced_opContextAll<'input, 'arena>, ANTLRError> {
+	pub fn mul_preced_op(&mut self,) -> Result<&'arena Mul_preced_opContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Mul_preced_opContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 66, RULE_mul_preced_op)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Mul_preced_opContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Mul_preced_opContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 66, RULE_mul_preced_op)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Mul_preced_opContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(358);
 			recog.err_handler.sync(&mut recog.base)?;
@@ -5110,9 +5552,9 @@ where
 			        {
 			        recog.base.set_state(352);
 			        let tmp = recog.base.match_token(CFood_MUL,&mut recog.err_handler)?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_opContext>().unwrap().MUL = Some(tmp); } 
-			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Mul_preced_opContext>().unwrap().MUL { it.get_line() } else { 0 } }.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_opContext>().unwrap().set_line(tmp); } 
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_opContext<TF::Tok>>().unwrap().MUL = Some(tmp); } 
+			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Mul_preced_opContext<TF::Tok>>().unwrap().MUL { it.get_line() } else { 0 } }.to_owned();
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_opContext<TF::Tok>>().unwrap().set_line(tmp); } 
 			        }}
 			    CFood_DIV  => {
 			        /*------- Outer Most Alt 2 -------*/
@@ -5120,9 +5562,9 @@ where
 			        {
 			        recog.base.set_state(354);
 			        let tmp = recog.base.match_token(CFood_DIV,&mut recog.err_handler)?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_opContext>().unwrap().DIV = Some(tmp); } 
-			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Mul_preced_opContext>().unwrap().DIV { it.get_line() } else { 0 } }.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_opContext>().unwrap().set_line(tmp); } 
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_opContext<TF::Tok>>().unwrap().DIV = Some(tmp); } 
+			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Mul_preced_opContext<TF::Tok>>().unwrap().DIV { it.get_line() } else { 0 } }.to_owned();
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_opContext<TF::Tok>>().unwrap().set_line(tmp); } 
 			        }}
 			    CFood_MOD  => {
 			        /*------- Outer Most Alt 3 -------*/
@@ -5130,9 +5572,9 @@ where
 			        {
 			        recog.base.set_state(356);
 			        let tmp = recog.base.match_token(CFood_MOD,&mut recog.err_handler)?;
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_opContext>().unwrap().MOD = Some(tmp); } 
-			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Mul_preced_opContext>().unwrap().MOD { it.get_line() } else { 0 } }.to_owned();
-			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_opContext>().unwrap().set_line(tmp); } 
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_opContext<TF::Tok>>().unwrap().MOD = Some(tmp); } 
+			         let tmp = { if let Some(it) = &recog.ctx().unwrap().as_rule_context::<Mul_preced_opContext<TF::Tok>>().unwrap().MOD { it.get_line() } else { 0 } }.to_owned();
+			        unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Mul_preced_opContext<TF::Tok>>().unwrap().set_line(tmp); } 
 			        }}
 				_ => Err(ANTLRError::no_alt(&mut recog.base))?
 			}
@@ -5147,70 +5589,83 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- apply_list ----------------
-pub type Apply_listContextAll<'input, 'arena> = Apply_listContext<'input, 'arena>;
+pub type Apply_listContextAll<'input, 'arena, Tok = CommonToken<'input>> = Apply_listContext<'input, 'arena, Tok>;
 
-pub type Apply_listContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, Apply_listContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct Apply_listContextExt<'input, 'arena> {
+pub type Apply_listContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Apply_listContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct Apply_listContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub ty_id: TyId,
-	pub args: Option<&'arena ArgsContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub args: Option<&'arena ArgsContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for Apply_listContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for Apply_listContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Apply_listContext }
 	fn get_rule_index(&self) -> usize { RULE_apply_list }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Apply_listContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Apply_listContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Apply_listContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => Apply_listContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::Apply_listContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Apply_listContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut Apply_listContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> Apply_listContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> Apply_listContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Apply_listContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_ty_id = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, Apply_listContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, Apply_listContextExt {
 				args: None, 
 				ty_id: _init_ty_id, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait Apply_listContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait Apply_listContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_ty_id(&self) -> &TyId; 
     fn set_ty_id(&mut self,attr: TyId); 
     /// Retrieves first TerminalNode corresponding to token PAREN_L
     /// Returns `None` if there is no child corresponding to token PAREN_L
-    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn args(&self) -> Option<&'arena ArgsContextAll<'input, 'arena>>;
+    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn args(&self) -> Option<&'arena ArgsContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token PAREN_R
     /// Returns `None` if there is no child corresponding to token PAREN_R
-    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena>>;
+    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> Apply_listContextAttrs<'input, 'arena> for Apply_listContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> Apply_listContextAttrs<'input, 'arena, Tok> for Apply_listContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
@@ -5218,16 +5673,16 @@ where
     fn set_ty_id(&mut self,attr: TyId) { self.deref_mut().ty_id = attr; }  
     /// Retrieves first TerminalNode corresponding to token PAREN_L
     /// Returns `None` if there is no child corresponding to token PAREN_L
-    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_PAREN_L, 0)
+    fn PAREN_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_PAREN_L)
     }
-    fn args(&self) -> Option<&'arena ArgsContextAll<'input, 'arena>> {
+    fn args(&self) -> Option<&'arena ArgsContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token PAREN_R
     /// Returns `None` if there is no child corresponding to token PAREN_R
-    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_PAREN_R, 0)
+    fn PAREN_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_PAREN_R)
     }
 }
 
@@ -5237,11 +5692,12 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn apply_list(&mut self,) -> Result<&'arena Apply_listContextAll<'input, 'arena>, ANTLRError> {
+	pub fn apply_list(&mut self,) -> Result<&'arena Apply_listContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Apply_listContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 68, RULE_apply_list)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena Apply_listContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(Apply_listContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 68, RULE_apply_list)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena Apply_listContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			/*------- Outer Most Alt 1 -------*/
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -5251,12 +5707,12 @@ where
 			/*InvokeRule args*/
 			recog.base.set_state(361);
 			let tmp = recog.args()?;
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Apply_listContext>().unwrap().args = Some(tmp); } 
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Apply_listContext<TF::Tok>>().unwrap().args = Some(tmp); } 
 			recog.base.set_state(362);
 			recog.base.match_token(CFood_PAREN_R,&mut recog.err_handler)?;
 
-			        let tmp = { *recog.ctx().unwrap().as_rule_context::<Apply_listContext>().unwrap().args.as_ref().unwrap().get_ty_id()}.to_owned();
-			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Apply_listContext>().unwrap().set_ty_id(tmp); }
+			        let tmp = { *recog.ctx().unwrap().as_rule_context::<Apply_listContext<TF::Tok>>().unwrap().args.as_ref().unwrap().get_ty_id()}.to_owned();
+			unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Apply_listContext<TF::Tok>>().unwrap().set_ty_id(tmp); }
 			    
 			}
 			Ok(())
@@ -5270,85 +5726,98 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 //------------------- args ----------------
-pub type ArgsContextAll<'input, 'arena> = ArgsContext<'input, 'arena>;
+pub type ArgsContextAll<'input, 'arena, Tok = CommonToken<'input>> = ArgsContext<'input, 'arena, Tok>;
 
-pub type ArgsContext<'input, 'arena> = BaseParserRuleContextInner<'input, 'arena, ArgsContextExt<'input, 'arena>, CFoodParserContextNode<'input, 'arena>>;
-pub struct ArgsContextExt<'input, 'arena> {
+pub type ArgsContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, ArgsContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+#[derive(Debug)]
+pub struct ArgsContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
 	pub ty_id: TyId,
-	pub expr: Option<&'arena ExprContextAll<'input, 'arena>>,
+	pub expr: Option<&'arena ExprContextAll<'input, 'arena, Tok>>,
 	pub COMMA: Option<&'arena dyn Token >,
-	pub args: Option<&'arena ArgsContextAll<'input, 'arena>>,
-    ph: PhantomData<(&'arena (), &'input ())>,
+	pub args: Option<&'arena ArgsContextAll<'input, 'arena, Tok>>,
+    ph: PhantomData<(&'arena (), &'input Tok)>,
 }
 
-impl<'input, 'arena> CustomRuleContext<'input, 'arena> for ArgsContextExt<'input, 'arena>
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for ArgsContextExt<'input, 'arena, Tok>
 where
-    'input: 'arena,
+    Tok: Token + 'input,
 {
-	type Node = CFoodParserContextNode<'input, 'arena>;
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::ArgsContext }
 	fn get_rule_index(&self) -> usize { RULE_args }
-    fn base_ref_from_node(node: &Self::Node) -> Option<&BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::ArgsContext(inner) => Some(inner),
-            _ => None,
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: ArgsContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a ArgsContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => ArgsContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
-    fn base_mut_ref_from_node(node: &mut Self::Node) -> Option<&mut BaseParserRuleContext<'input, 'arena, Self>> {
-        match node {
-            CFoodParserContextNode::ArgsContext(inner) => Some(inner),
-            _ => None,
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut ArgsContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut ArgsContext<'input, 'arena, Tok>))
+        } else {
+            None
         }
     }
 }
 
-impl<'input, 'arena> ArgsContextExt<'input, 'arena>{
-	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserContextNode<'input, 'arena>>, invoking_state: i32) -> ArgsContextAll<'input, 'arena>
-    where
-        'input: 'arena,
+impl<'input: 'arena, 'arena, Tok: Token + 'input> ArgsContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
     {
 		let mut _init_ty_id = Default::default();
 
-        BaseParserRuleContext::new(arena, parent, invoking_state, ArgsContextExt {
+        BaseParserRuleContext::create(arena, parent, invoking_state, ArgsContextExt {
 				COMMA: None, 
 				expr: None, args: None, 
 				ty_id: _init_ty_id, 
 				ph: PhantomData
-			},
+			}
 		)
 	}
 }
 
-pub trait ArgsContextAttrs<'input, 'arena>: ParserRuleContext<'input, 'arena>
+pub trait ArgsContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
 where
     'input: 'arena,
+    Tok: Token + 'input,
 {
     fn get_ty_id(&self) -> &TyId; 
     fn set_ty_id(&mut self,attr: TyId); 
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena>>;
+    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>>;
     /// Retrieves first TerminalNode corresponding to token COMMA
     /// Returns `None` if there is no child corresponding to token COMMA
-    fn COMMA(&self) -> Option<&TerminalNode<'input, 'arena>>;
-    fn args(&self) -> Option<&'arena ArgsContextAll<'input, 'arena>>;
+    fn COMMA(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    fn args(&self) -> Option<&'arena ArgsContextAll<'input, 'arena, Tok>>;
 }
 
-impl<'input, 'arena> ArgsContextAttrs<'input, 'arena> for ArgsContext<'input, 'arena>
+impl<'input, 'arena, Tok: Token + 'input> ArgsContextAttrs<'input, 'arena, Tok> for ArgsContext<'input, 'arena, Tok>
 where
     'input: 'arena,
 {
     fn get_ty_id(&self) -> &TyId { &self.deref().ty_id }  
     fn set_ty_id(&mut self,attr: TyId) { self.deref_mut().ty_id = attr; }  
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena>> {
+    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
     /// Retrieves first TerminalNode corresponding to token COMMA
     /// Returns `None` if there is no child corresponding to token COMMA
-    fn COMMA(&self) -> Option<&TerminalNode<'input, 'arena>> {
-    	self.get_token(CFood_COMMA, 0)
+    fn COMMA(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_COMMA)
     }
-    fn args(&self) -> Option<&'arena ArgsContextAll<'input, 'arena>> {
+    fn args(&self) -> Option<&'arena ArgsContextAll<'input, 'arena, Tok>> {
         self.child_of_type(0)
     }
 }
@@ -5359,15 +5828,16 @@ where
     TF: TokenFactory<'input, 'arena> + 'arena,
     Input: TokenStream<'input, 'arena, TF> + 'arena,
 {
-	pub fn args(&mut self,) -> Result<&'arena ArgsContextAll<'input, 'arena>, ANTLRError> {
+	pub fn args(&mut self,) -> Result<&'arena ArgsContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(ArgsContextExt::create(recog.get_arena(), _parentctx, recog.get_state()).into(), 70, RULE_args)?;
-        let _local_ctx_fn = |recog: &Self| -> &'arena ArgsContext {recog.ctx().unwrap().as_rule_context().unwrap()};
+        recog.base.enter_rule(ArgsContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 70, RULE_args)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena ArgsContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			recog.base.set_state(374);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.interpreter.adaptive_predict(25,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(25,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
@@ -5375,20 +5845,20 @@ where
 					/*InvokeRule expr*/
 					recog.base.set_state(365);
 					let tmp = recog.expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ArgsContext>().unwrap().expr = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ArgsContext<TF::Tok>>().unwrap().expr = Some(tmp); } 
 					recog.base.set_state(366);
 					let tmp = recog.base.match_token(CFood_COMMA,&mut recog.err_handler)?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ArgsContext>().unwrap().COMMA = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ArgsContext<TF::Tok>>().unwrap().COMMA = Some(tmp); } 
 					/*InvokeRule args*/
 					recog.base.set_state(367);
 					let tmp = recog.args()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ArgsContext>().unwrap().args = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ArgsContext<TF::Tok>>().unwrap().args = Some(tmp); } 
 
-					        let expr = *recog.ctx().unwrap().as_rule_context::<ArgsContext>().unwrap().expr.as_ref().unwrap().get_ty_id();
-					        let args = *recog.ctx().unwrap().as_rule_context::<ArgsContext>().unwrap().args.as_ref().unwrap().get_ty_id();
-					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<ArgsContext>().unwrap().COMMA { it.get_line() } else { 0 } ;
+					        let expr = *recog.ctx().unwrap().as_rule_context::<ArgsContext<TF::Tok>>().unwrap().expr.as_ref().unwrap().get_ty_id();
+					        let args = *recog.ctx().unwrap().as_rule_context::<ArgsContext<TF::Tok>>().unwrap().args.as_ref().unwrap().get_ty_id();
+					        let line = if let Some(it) = &recog.ctx().unwrap().as_rule_context::<ArgsContext<TF::Tok>>().unwrap().COMMA { it.get_line() } else { 0 } ;
 					        let tmp = { recog.tlt.apply(expr, args, line)}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ArgsContext>().unwrap().set_ty_id(tmp); }
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ArgsContext<TF::Tok>>().unwrap().set_ty_id(tmp); }
 					    
 					}
 				}
@@ -5400,10 +5870,10 @@ where
 					/*InvokeRule expr*/
 					recog.base.set_state(370);
 					let tmp = recog.expr()?;
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ArgsContext>().unwrap().expr = Some(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ArgsContext<TF::Tok>>().unwrap().expr = Some(tmp); } 
 
-					        let tmp = { *recog.ctx().unwrap().as_rule_context::<ArgsContext>().unwrap().expr.as_ref().unwrap().get_ty_id()}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ArgsContext>().unwrap().set_ty_id(tmp); };
+					        let tmp = { *recog.ctx().unwrap().as_rule_context::<ArgsContext<TF::Tok>>().unwrap().expr.as_ref().unwrap().get_ty_id()}.to_owned();
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ArgsContext<TF::Tok>>().unwrap().set_ty_id(tmp); };
 					    
 					}
 				}
@@ -5413,7 +5883,7 @@ where
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(3); }
 					{
 					 let tmp = { recog.tlt.new_ty(Ty::void())}.to_owned();
-					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ArgsContext>().unwrap().set_ty_id(tmp); } 
+					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<ArgsContext<TF::Tok>>().unwrap().set_ty_id(tmp); } 
 					}
 				}
 
@@ -5430,23 +5900,13 @@ where
 			}
 		}
 		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
 	}
 }
 
+static ATN_SIMULATOR_MANAGER: LazyLock<ATNSimulatorManager> = LazyLock::new(|| ATNSimulatorManager::new(&_ATN));
 static _ATN: LazyLock<ATN> =
     LazyLock::new(|| ATNDeserializer::new(None).deserialize(&mut _serializedATN.iter()));
-static _decision_to_DFA: LazyLock<Vec<DFA>> = LazyLock::new(|| {
-    let size = _ATN.decision_to_state.len() as i32;
-    let mut dfa = Vec::with_capacity(size as usize);
-    for i in 0..size {
-        dfa.push(DFA::new(
-            &_ATN,
-            _ATN.get_decision_state(i),
-            i,
-        ))
-    }
-    dfa
-});
 static _serializedATN: LazyLock<Vec<i32>> = LazyLock::new(|| vec![
     4, 1, 37, 377, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 
     7, 4, 2, 5, 7, 5, 2, 6, 7, 6, 2, 7, 7, 7, 2, 8, 7, 8, 2, 9, 7, 9, 2, 
