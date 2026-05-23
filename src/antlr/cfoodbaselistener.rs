@@ -1,12 +1,5 @@
 // Generated from ./CFood.g4 by ANTLR 4.13.2
 
-
-
-    #![allow(unused_imports)]
-	use crate::ty::*;
-	use crate::tlt::*;
-
-
 use super::cfoodparser::*;
 use dbt_antlr4::tree::ParseTreeListener;
 
@@ -151,12 +144,36 @@ pub trait CFoodBaseListener<'arena>:
      * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
      * @param ctx the parse tree
 ,      */
-    fn enter_number(&mut self, _ctx: &NumberContext<'input, 'arena>) {}
+    fn enter_lit_int(&mut self, _ctx: &Lit_intContext<'input, 'arena>) {}
     /**
      * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
      * @param ctx the parse tree
      */
-    fn exit_number(&mut self, _ctx: &NumberContext<'input, 'arena>) {}
+    fn exit_lit_int(&mut self, _ctx: &Lit_intContext<'input, 'arena>) {}
+
+
+    /**
+     * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
+     * @param ctx the parse tree
+,      */
+    fn enter_lit_float(&mut self, _ctx: &Lit_floatContext<'input, 'arena>) {}
+    /**
+     * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
+     * @param ctx the parse tree
+     */
+    fn exit_lit_float(&mut self, _ctx: &Lit_floatContext<'input, 'arena>) {}
+
+
+    /**
+     * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
+     * @param ctx the parse tree
+,      */
+    fn enter_lit_constr(&mut self, _ctx: &Lit_constrContext<'input, 'arena>) {}
+    /**
+     * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
+     * @param ctx the parse tree
+     */
+    fn exit_lit_constr(&mut self, _ctx: &Lit_constrContext<'input, 'arena>) {}
 
 
     /**
@@ -187,12 +204,24 @@ pub trait CFoodBaseListener<'arena>:
      * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
      * @param ctx the parse tree
 ,      */
-    fn enter_ty_kind(&mut self, _ctx: &Ty_kindContext<'input, 'arena>) {}
+    fn enter_ty_kind_ty(&mut self, _ctx: &Ty_kind_tyContext<'input, 'arena>) {}
     /**
      * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
      * @param ctx the parse tree
      */
-    fn exit_ty_kind(&mut self, _ctx: &Ty_kindContext<'input, 'arena>) {}
+    fn exit_ty_kind_ty(&mut self, _ctx: &Ty_kind_tyContext<'input, 'arena>) {}
+
+
+    /**
+     * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
+     * @param ctx the parse tree
+,      */
+    fn enter_ty_kind_type(&mut self, _ctx: &Ty_kind_typeContext<'input, 'arena>) {}
+    /**
+     * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
+     * @param ctx the parse tree
+     */
+    fn exit_ty_kind_type(&mut self, _ctx: &Ty_kind_typeContext<'input, 'arena>) {}
 
 
     /**
@@ -235,12 +264,12 @@ pub trait CFoodBaseListener<'arena>:
      * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
      * @param ctx the parse tree
 ,      */
-    fn enter_may_empty_stmt(&mut self, _ctx: &May_empty_stmtContext<'input, 'arena>) {}
+    fn enter_expr_stmt(&mut self, _ctx: &Expr_stmtContext<'input, 'arena>) {}
     /**
      * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
      * @param ctx the parse tree
      */
-    fn exit_may_empty_stmt(&mut self, _ctx: &May_empty_stmtContext<'input, 'arena>) {}
+    fn exit_expr_stmt(&mut self, _ctx: &Expr_stmtContext<'input, 'arena>) {}
 
 
     /**
@@ -331,60 +360,132 @@ pub trait CFoodBaseListener<'arena>:
      * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
      * @param ctx the parse tree
 ,      */
-    fn enter_calc_expr(&mut self, _ctx: &Calc_exprContext<'input, 'arena>) {}
+    fn enter_calc_expr_use(&mut self, _ctx: &Calc_expr_useContext<'input, 'arena>) {}
     /**
      * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
      * @param ctx the parse tree
      */
-    fn exit_calc_expr(&mut self, _ctx: &Calc_exprContext<'input, 'arena>) {}
+    fn exit_calc_expr_use(&mut self, _ctx: &Calc_expr_useContext<'input, 'arena>) {}
 
 
     /**
      * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
      * @param ctx the parse tree
 ,      */
-    fn enter_call_preced_expr(&mut self, _ctx: &Call_preced_exprContext<'input, 'arena>) {}
+    fn enter_calc_expr_pass(&mut self, _ctx: &Calc_expr_passContext<'input, 'arena>) {}
     /**
      * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
      * @param ctx the parse tree
      */
-    fn exit_call_preced_expr(&mut self, _ctx: &Call_preced_exprContext<'input, 'arena>) {}
+    fn exit_calc_expr_pass(&mut self, _ctx: &Calc_expr_passContext<'input, 'arena>) {}
 
 
     /**
      * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
      * @param ctx the parse tree
 ,      */
-    fn enter_add_preced_expr(&mut self, _ctx: &Add_preced_exprContext<'input, 'arena>) {}
+    fn enter_call_preced_expr_use(&mut self, _ctx: &Call_preced_expr_useContext<'input, 'arena>) {}
     /**
      * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
      * @param ctx the parse tree
      */
-    fn exit_add_preced_expr(&mut self, _ctx: &Add_preced_exprContext<'input, 'arena>) {}
+    fn exit_call_preced_expr_use(&mut self, _ctx: &Call_preced_expr_useContext<'input, 'arena>) {}
 
 
     /**
      * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
      * @param ctx the parse tree
 ,      */
-    fn enter_mul_preced_expr(&mut self, _ctx: &Mul_preced_exprContext<'input, 'arena>) {}
+    fn enter_call_preced_expr_pass(&mut self, _ctx: &Call_preced_expr_passContext<'input, 'arena>) {}
     /**
      * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
      * @param ctx the parse tree
      */
-    fn exit_mul_preced_expr(&mut self, _ctx: &Mul_preced_exprContext<'input, 'arena>) {}
+    fn exit_call_preced_expr_pass(&mut self, _ctx: &Call_preced_expr_passContext<'input, 'arena>) {}
 
 
     /**
      * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
      * @param ctx the parse tree
 ,      */
-    fn enter_atom_preced_expr(&mut self, _ctx: &Atom_preced_exprContext<'input, 'arena>) {}
+    fn enter_add_preced_expr_use(&mut self, _ctx: &Add_preced_expr_useContext<'input, 'arena>) {}
     /**
      * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
      * @param ctx the parse tree
      */
-    fn exit_atom_preced_expr(&mut self, _ctx: &Atom_preced_exprContext<'input, 'arena>) {}
+    fn exit_add_preced_expr_use(&mut self, _ctx: &Add_preced_expr_useContext<'input, 'arena>) {}
+
+
+    /**
+     * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
+     * @param ctx the parse tree
+,      */
+    fn enter_add_preced_expr_pass(&mut self, _ctx: &Add_preced_expr_passContext<'input, 'arena>) {}
+    /**
+     * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
+     * @param ctx the parse tree
+     */
+    fn exit_add_preced_expr_pass(&mut self, _ctx: &Add_preced_expr_passContext<'input, 'arena>) {}
+
+
+    /**
+     * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
+     * @param ctx the parse tree
+,      */
+    fn enter_mul_preced_expr_use(&mut self, _ctx: &Mul_preced_expr_useContext<'input, 'arena>) {}
+    /**
+     * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
+     * @param ctx the parse tree
+     */
+    fn exit_mul_preced_expr_use(&mut self, _ctx: &Mul_preced_expr_useContext<'input, 'arena>) {}
+
+
+    /**
+     * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
+     * @param ctx the parse tree
+,      */
+    fn enter_mul_preced_expr_pass(&mut self, _ctx: &Mul_preced_expr_passContext<'input, 'arena>) {}
+    /**
+     * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
+     * @param ctx the parse tree
+     */
+    fn exit_mul_preced_expr_pass(&mut self, _ctx: &Mul_preced_expr_passContext<'input, 'arena>) {}
+
+
+    /**
+     * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
+     * @param ctx the parse tree
+,      */
+    fn enter_atom_preced_expr_apply_list(&mut self, _ctx: &Atom_preced_expr_apply_listContext<'input, 'arena>) {}
+    /**
+     * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
+     * @param ctx the parse tree
+     */
+    fn exit_atom_preced_expr_apply_list(&mut self, _ctx: &Atom_preced_expr_apply_listContext<'input, 'arena>) {}
+
+
+    /**
+     * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
+     * @param ctx the parse tree
+,      */
+    fn enter_atom_preced_expr_var(&mut self, _ctx: &Atom_preced_expr_varContext<'input, 'arena>) {}
+    /**
+     * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
+     * @param ctx the parse tree
+     */
+    fn exit_atom_preced_expr_var(&mut self, _ctx: &Atom_preced_expr_varContext<'input, 'arena>) {}
+
+
+    /**
+     * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
+     * @param ctx the parse tree
+,      */
+    fn enter_atom_preced_expr_lit(&mut self, _ctx: &Atom_preced_expr_litContext<'input, 'arena>) {}
+    /**
+     * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
+     * @param ctx the parse tree
+     */
+    fn exit_atom_preced_expr_lit(&mut self, _ctx: &Atom_preced_expr_litContext<'input, 'arena>) {}
 
 
     /**

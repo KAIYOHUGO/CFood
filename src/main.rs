@@ -1,5 +1,6 @@
 use cfood::{
-    antlr::{cfoodparser::CFoodTreeWalker, *},
+    antlr::{cfoodparser::CFoodTreeWalker, cfoodvisitor::CFoodVisitor, *},
+    cst::{CstToSexpr, parse_to_cst, visitor::Visitor},
     print::SexprAst,
 };
 
@@ -8,7 +9,7 @@ use std::{env, fs, io};
 use anyhow::{Ok, Result, anyhow};
 use dbt_antlr4::{
     Arena, BailErrorStrategy, InputStream, token_factory::CommonTokenFactory,
-    token_stream::UnbufferedTokenStream,
+    token_stream::UnbufferedTokenStream, tree::NodeInner,
 };
 
 fn main() -> Result<()> {
@@ -36,18 +37,23 @@ fn main() -> Result<()> {
 
         let ast = parser.file()?;
 
-        let sexpr = Box::new(SexprAst::new(
-            &cfoodparser::ruleNames,
-            &cfoodlexer::ruleNames,
-            parser.tlt.clone(),
-        ));
-        let sexpr = CFoodTreeWalker::walk(sexpr, ast)?;
+        let (file, span_store) = parse_to_cst(ast.as_node())?;
+        let mut cst_to_sexpr = CstToSexpr::new(&span_store);
+        let s = cst_to_sexpr.visit_file(&file)?;
 
-        Ok(sexpr.to_sexpr())
+        // let sexpr = Box::new(SexprAst::new(
+        //     &cfoodparser::ruleNames,
+        //     &cfoodlexer::ruleNames,
+        //     parser.tlt.clone(),
+        // ));
+        // let sexpr = CFoodTreeWalker::walk(sexpr, ast)?;
+
+        // Ok(sexpr.to_sexpr())
+        Ok(s)
     })?;
 
     if pretty {
-        println!("{}", ast);
+        print!("{}", ast);
     }
 
     Ok(())
