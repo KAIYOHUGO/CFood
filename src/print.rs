@@ -6,45 +6,26 @@ use dbt_antlr4::{
     tree::ParseTreeListener,
 };
 
-use crate::{
-    antlr::{
-        cfoodlistener::CFoodListener,
-        cfoodparser::{self, CFoodParserNodeKind},
-    },
-    tlt::TLT,
-    ty::TyId,
-};
+use crate::antlr::cfoodparser::CFoodParserNodeKind;
 
 #[derive(Debug)]
 pub struct SexprAst {
     res: String,
     rules: &'static [&'static str],
     lexer_rules: &'static [&'static str],
-    tlt: TLT,
 }
 
 impl SexprAst {
-    pub fn new(
-        rules: &'static [&'static str],
-        lexer_rules: &'static [&'static str],
-        tlt: TLT,
-    ) -> Self {
+    pub fn new(rules: &'static [&'static str], lexer_rules: &'static [&'static str]) -> Self {
         Self {
             res: String::new(),
             rules,
             lexer_rules,
-            tlt,
         }
     }
 
     pub fn to_sexpr(self) -> String {
         self.res
-    }
-
-    fn print_ty(&mut self, ty_id: TyId) {
-        self.res.push_str("(@ty ");
-        self.res.push_str(&format!("\"{}\"", self.tlt.ty(ty_id)));
-        self.res.push(')');
     }
 }
 
@@ -107,70 +88,3 @@ impl<'input: 'arena, 'arena> ParseTreeListener<'arena, CFoodParserNodeKind, Comm
         Ok(())
     }
 }
-
-// impl<'arena> CFoodListener<'arena> for SexprAst {
-//     fn exit_var_decl_ty<'input: 'arena>(
-//         &mut self,
-//         ctx: &cfoodparser::Var_decl_tyContext<'input, 'arena, CommonToken<'input>>,
-//     ) -> Result<(), ANTLRError> {
-//         self.print_ty(ctx.ty_id);
-//         Ok(())
-//     }
-
-//     fn exit_fn_decl<'input: 'arena>(
-//         &mut self,
-//         ctx: &cfoodparser::Fn_declContext<'input, 'arena, CommonToken<'input>>,
-//     ) -> Result<(), ANTLRError> {
-//         self.print_ty(ctx.ty_id);
-
-//         Ok(())
-//     }
-
-//     fn exit_atom_preced_expr<'input: 'arena>(
-//         &mut self,
-//         ctx: &cfoodparser::Atom_preced_exprContext<'input, 'arena, CommonToken<'input>>,
-//     ) -> Result<(), ANTLRError> {
-//         self.print_ty(ctx.ty_id);
-//         Ok(())
-//     }
-
-//     fn exit_add_preced_expr<'input: 'arena>(
-//         &mut self,
-//         ctx: &cfoodparser::Add_preced_exprContext<'input, 'arena, CommonToken<'input>>,
-//     ) -> Result<(), ANTLRError> {
-//         self.print_ty(ctx.ty_id);
-//         Ok(())
-//     }
-
-//     fn exit_mul_preced_expr<'input: 'arena>(
-//         &mut self,
-//         ctx: &cfoodparser::Mul_preced_exprContext<'input, 'arena, CommonToken<'input>>,
-//     ) -> Result<(), ANTLRError> {
-//         self.print_ty(ctx.ty_id);
-//         Ok(())
-//     }
-
-//     fn exit_call_preced_expr<'input: 'arena>(
-//         &mut self,
-//         ctx: &cfoodparser::Call_preced_exprContext<'input, 'arena, CommonToken<'input>>,
-//     ) -> Result<(), ANTLRError> {
-//         self.print_ty(ctx.ty_id);
-//         Ok(())
-//     }
-
-//     fn exit_calc_expr<'input: 'arena>(
-//         &mut self,
-//         ctx: &cfoodparser::Calc_exprContext<'input, 'arena, CommonToken<'input>>,
-//     ) -> Result<(), ANTLRError> {
-//         self.print_ty(ctx.ty_id);
-//         Ok(())
-//     }
-
-//     fn exit_apply_list<'input: 'arena>(
-//         &mut self,
-//         ctx: &cfoodparser::Apply_listContext<'input, 'arena, CommonToken<'input>>,
-//     ) -> Result<(), ANTLRError> {
-//         self.print_ty(ctx.ty_id);
-//         Ok(())
-//     }
-// }

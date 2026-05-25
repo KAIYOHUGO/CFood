@@ -4,5 +4,3 @@ pub mod error;
 pub mod checker;
 pub mod cst;
 pub mod print;
-pub mod tlt;
-pub mod ty;
