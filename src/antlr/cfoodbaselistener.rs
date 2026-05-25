@@ -396,12 +396,36 @@ pub trait CFoodBaseListener<'arena>:
      * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
      * @param ctx the parse tree
 ,      */
+    fn enter_call_preced_expr_magic(&mut self, _ctx: &Call_preced_expr_magicContext<'input, 'arena>) {}
+    /**
+     * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
+     * @param ctx the parse tree
+     */
+    fn exit_call_preced_expr_magic(&mut self, _ctx: &Call_preced_expr_magicContext<'input, 'arena>) {}
+
+
+    /**
+     * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
+     * @param ctx the parse tree
+,      */
     fn enter_call_preced_expr_pass(&mut self, _ctx: &Call_preced_expr_passContext<'input, 'arena>) {}
     /**
      * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
      * @param ctx the parse tree
      */
     fn exit_call_preced_expr_pass(&mut self, _ctx: &Call_preced_expr_passContext<'input, 'arena>) {}
+
+
+    /**
+     * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
+     * @param ctx the parse tree
+,      */
+    fn enter_magic(&mut self, _ctx: &MagicContext<'input, 'arena>) {}
+    /**
+     * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
+     * @param ctx the parse tree
+     */
+    fn exit_magic(&mut self, _ctx: &MagicContext<'input, 'arena>) {}
 
 
     /**

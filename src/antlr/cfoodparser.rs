@@ -45,37 +45,38 @@ pub const CFood_KW_type:i32=5;
 pub const CFood_KW_let:i32=6; 
 pub const CFood_TY_int:i32=7; 
 pub const CFood_TY_float:i32=8; 
-pub const CFood_TY_void:i32=9; 
-pub const CFood_ARROW:i32=10; 
-pub const CFood_PAREN_L:i32=11; 
-pub const CFood_PAREN_R:i32=12; 
-pub const CFood_BRACE_L:i32=13; 
-pub const CFood_BRACE_R:i32=14; 
-pub const CFood_BRACKET_L:i32=15; 
-pub const CFood_BRACKET_R:i32=16; 
-pub const CFood_NE:i32=17; 
-pub const CFood_EQ:i32=18; 
-pub const CFood_LT:i32=19; 
-pub const CFood_GT:i32=20; 
-pub const CFood_LE:i32=21; 
-pub const CFood_GE:i32=22; 
-pub const CFood_PLUS:i32=23; 
-pub const CFood_SUB:i32=24; 
-pub const CFood_MOD:i32=25; 
-pub const CFood_MUL:i32=26; 
-pub const CFood_DIV:i32=27; 
-pub const CFood_PEO:i32=28; 
-pub const CFood_ASSIGN:i32=29; 
-pub const CFood_COMMA:i32=30; 
-pub const CFood_SEMICOLON:i32=31; 
-pub const CFood_TYPE:i32=32; 
-pub const CFood_IDENT:i32=33; 
-pub const CFood_INT:i32=34; 
-pub const CFood_FLOAT:i32=35; 
-pub const CFood_CONSTR:i32=36; 
-pub const CFood_LINE_COMMENT:i32=37; 
-pub const CFood_COMMENT:i32=38; 
-pub const CFood_WS:i32=39;
+pub const CFood_TY_str:i32=9; 
+pub const CFood_TY_void:i32=10; 
+pub const CFood_MAGIC_printf:i32=11; 
+pub const CFood_MAGIC_scanf:i32=12; 
+pub const CFood_ARROW:i32=13; 
+pub const CFood_PAREN_L:i32=14; 
+pub const CFood_PAREN_R:i32=15; 
+pub const CFood_BRACE_L:i32=16; 
+pub const CFood_BRACE_R:i32=17; 
+pub const CFood_NE:i32=18; 
+pub const CFood_EQ:i32=19; 
+pub const CFood_LT:i32=20; 
+pub const CFood_GT:i32=21; 
+pub const CFood_LE:i32=22; 
+pub const CFood_GE:i32=23; 
+pub const CFood_PLUS:i32=24; 
+pub const CFood_SUB:i32=25; 
+pub const CFood_MOD:i32=26; 
+pub const CFood_MUL:i32=27; 
+pub const CFood_DIV:i32=28; 
+pub const CFood_PEO:i32=29; 
+pub const CFood_ASSIGN:i32=30; 
+pub const CFood_COMMA:i32=31; 
+pub const CFood_SEMICOLON:i32=32; 
+pub const CFood_TYPE:i32=33; 
+pub const CFood_IDENT:i32=34; 
+pub const CFood_INT:i32=35; 
+pub const CFood_FLOAT:i32=36; 
+pub const CFood_CONSTR:i32=37; 
+pub const CFood_LINE_COMMENT:i32=38; 
+pub const CFood_COMMENT:i32=39; 
+pub const CFood_WS:i32=40;
 pub const CFood_EOF:i32=EOF;
 pub const RULE_file:usize = 0; 
 pub const RULE_decls:usize = 1; 
@@ -105,41 +106,42 @@ pub const RULE_assign_expr:usize = 24;
 pub const RULE_var:usize = 25; 
 pub const RULE_calc_expr:usize = 26; 
 pub const RULE_call_preced_expr:usize = 27; 
-pub const RULE_add_preced_expr:usize = 28; 
-pub const RULE_mul_preced_expr:usize = 29; 
-pub const RULE_atom_preced_expr:usize = 30; 
-pub const RULE_cmp_preced_op:usize = 31; 
-pub const RULE_add_preced_op:usize = 32; 
-pub const RULE_mul_preced_op:usize = 33; 
-pub const RULE_apply_list:usize = 34; 
-pub const RULE_args:usize = 35;
-pub const ruleNames: [&'static str; 36] = [
+pub const RULE_magic:usize = 28; 
+pub const RULE_add_preced_expr:usize = 29; 
+pub const RULE_mul_preced_expr:usize = 30; 
+pub const RULE_atom_preced_expr:usize = 31; 
+pub const RULE_cmp_preced_op:usize = 32; 
+pub const RULE_add_preced_op:usize = 33; 
+pub const RULE_mul_preced_op:usize = 34; 
+pub const RULE_apply_list:usize = 35; 
+pub const RULE_args:usize = 36;
+pub const ruleNames: [&'static str; 37] = [
     "file", "decls", "decl", "var_decl", "var_decl_ty", "var_decl_init", 
     "fn_decl", "ty_decl", "params", "param_list", "param", "lit", "tys", 
     "ty", "ty_kind", "block", "stmts", "stmt", "expr_stmt", "branch_stmt", 
     "iter_stmt", "return_stmt", "let_stmt", "expr", "assign_expr", "var", 
-    "calc_expr", "call_preced_expr", "add_preced_expr", "mul_preced_expr", 
+    "calc_expr", "call_preced_expr", "magic", "add_preced_expr", "mul_preced_expr", 
     "atom_preced_expr", "cmp_preced_op", "add_preced_op", "mul_preced_op", 
     "apply_list", "args"
 ];
 
-pub const _LITERAL_NAMES: [Option<&'static str>;32] = [
+pub const _LITERAL_NAMES: [Option<&'static str>;33] = [
 	None, Some("'while'"), Some("'if'"), Some("'else'"), Some("'return'"), 
-	Some("'type'"), Some("'let'"), Some("'int'"), Some("'float'"), Some("'void'"), 
-	Some("'->'"), Some("'('"), Some("')'"), Some("'{'"), Some("'}'"), Some("'['"), 
-	Some("']'"), Some("'!='"), Some("'=='"), Some("'<'"), Some("'>'"), Some("'<='"), 
-	Some("'>='"), Some("'+'"), Some("'-'"), Some("'%'"), Some("'*'"), Some("'/'"), 
-	Some("'##'"), Some("'='"), Some("','"), Some("';'")
+	Some("'type'"), Some("'let'"), Some("'int'"), Some("'float'"), Some("'str'"), 
+	Some("'void'"), Some("'printf'"), Some("'scanf'"), Some("'->'"), Some("'('"), 
+	Some("')'"), Some("'{'"), Some("'}'"), Some("'!='"), Some("'=='"), Some("'<'"), 
+	Some("'>'"), Some("'<='"), Some("'>='"), Some("'+'"), Some("'-'"), Some("'%'"), 
+	Some("'*'"), Some("'/'"), Some("'##'"), Some("'='"), Some("','"), Some("';'")
 ];
-pub const _SYMBOLIC_NAMES: [Option<&'static str>;40]  = [
+pub const _SYMBOLIC_NAMES: [Option<&'static str>;41]  = [
 	None, Some("KW_while"), Some("KW_if"), Some("KW_else"), Some("KW_return"), 
-	Some("KW_type"), Some("KW_let"), Some("TY_int"), Some("TY_float"), Some("TY_void"), 
-	Some("ARROW"), Some("PAREN_L"), Some("PAREN_R"), Some("BRACE_L"), Some("BRACE_R"), 
-	Some("BRACKET_L"), Some("BRACKET_R"), Some("NE"), Some("EQ"), Some("LT"), 
-	Some("GT"), Some("LE"), Some("GE"), Some("PLUS"), Some("SUB"), Some("MOD"), 
-	Some("MUL"), Some("DIV"), Some("PEO"), Some("ASSIGN"), Some("COMMA"), Some("SEMICOLON"), 
-	Some("TYPE"), Some("IDENT"), Some("INT"), Some("FLOAT"), Some("CONSTR"), 
-	Some("LINE_COMMENT"), Some("COMMENT"), Some("WS")
+	Some("KW_type"), Some("KW_let"), Some("TY_int"), Some("TY_float"), Some("TY_str"), 
+	Some("TY_void"), Some("MAGIC_printf"), Some("MAGIC_scanf"), Some("ARROW"), 
+	Some("PAREN_L"), Some("PAREN_R"), Some("BRACE_L"), Some("BRACE_R"), Some("NE"), 
+	Some("EQ"), Some("LT"), Some("GT"), Some("LE"), Some("GE"), Some("PLUS"), 
+	Some("SUB"), Some("MOD"), Some("MUL"), Some("DIV"), Some("PEO"), Some("ASSIGN"), 
+	Some("COMMA"), Some("SEMICOLON"), Some("TYPE"), Some("IDENT"), Some("INT"), 
+	Some("FLOAT"), Some("CONSTR"), Some("LINE_COMMENT"), Some("COMMENT"), Some("WS")
 ];
 
 static VOCABULARY: LazyLock<Box<dyn Vocabulary>> = LazyLock::new(|| Box::new(VocabularyImpl::new(_LITERAL_NAMES.iter(), _SYMBOLIC_NAMES.iter(), None)));
@@ -257,6 +259,7 @@ pub enum CFoodParserNodeKind {
     VarContext,
     Calc_exprContext,
     Call_preced_exprContext,
+    MagicContext,
     Add_preced_exprContext,
     Mul_preced_exprContext,
     Atom_preced_exprContext,
@@ -272,7 +275,7 @@ pub type CFoodParserNode<'input, 'arena, Tok = CommonToken<'input>> = TreeNode<'
 
 dbt_antlr4::impl_deref! { parser => CFoodParser }
 dbt_antlr4::impl_node_kind! { CFoodParserNodeKind {
-    LitContext(LitContextAll), Ty_kindContext(Ty_kindContextAll), Calc_exprContext(Calc_exprContextAll), Call_preced_exprContext(Call_preced_exprContextAll), Add_preced_exprContext(Add_preced_exprContextAll), Mul_preced_exprContext(Mul_preced_exprContextAll), Atom_preced_exprContext(Atom_preced_exprContextAll), ; FileContext(enter_file, exit_file,  visit_file), DeclsContext(enter_decls, exit_decls,  visit_decls), DeclContext(enter_decl, exit_decl,  visit_decl), Var_declContext(enter_var_decl, exit_var_decl,  visit_var_decl), Var_decl_tyContext(enter_var_decl_ty, exit_var_decl_ty,  visit_var_decl_ty), Var_decl_initContext(enter_var_decl_init, exit_var_decl_init,  visit_var_decl_init), Fn_declContext(enter_fn_decl, exit_fn_decl,  visit_fn_decl), Ty_declContext(enter_ty_decl, exit_ty_decl,  visit_ty_decl), ParamsContext(enter_params, exit_params,  visit_params), Param_listContext(enter_param_list, exit_param_list,  visit_param_list), ParamContext(enter_param, exit_param,  visit_param), TysContext(enter_tys, exit_tys,  visit_tys), TyContext(enter_ty, exit_ty,  visit_ty), BlockContext(enter_block, exit_block,  visit_block), StmtsContext(enter_stmts, exit_stmts,  visit_stmts), StmtContext(enter_stmt, exit_stmt,  visit_stmt), Expr_stmtContext(enter_expr_stmt, exit_expr_stmt,  visit_expr_stmt), Branch_stmtContext(enter_branch_stmt, exit_branch_stmt,  visit_branch_stmt), Iter_stmtContext(enter_iter_stmt, exit_iter_stmt,  visit_iter_stmt), Return_stmtContext(enter_return_stmt, exit_return_stmt,  visit_return_stmt), Let_stmtContext(enter_let_stmt, exit_let_stmt,  visit_let_stmt), ExprContext(enter_expr, exit_expr,  visit_expr), Assign_exprContext(enter_assign_expr, exit_assign_expr,  visit_assign_expr), VarContext(enter_var, exit_var,  visit_var), Cmp_preced_opContext(enter_cmp_preced_op, exit_cmp_preced_op,  visit_cmp_preced_op), Add_preced_opContext(enter_add_preced_op, exit_add_preced_op,  visit_add_preced_op), Mul_preced_opContext(enter_mul_preced_op, exit_mul_preced_op,  visit_mul_preced_op), Apply_listContext(enter_apply_list, exit_apply_list,  visit_apply_list), ArgsContext(enter_args, exit_args,  visit_args), 
+    LitContext(LitContextAll), Ty_kindContext(Ty_kindContextAll), Calc_exprContext(Calc_exprContextAll), Call_preced_exprContext(Call_preced_exprContextAll), Add_preced_exprContext(Add_preced_exprContextAll), Mul_preced_exprContext(Mul_preced_exprContextAll), Atom_preced_exprContext(Atom_preced_exprContextAll), ; FileContext(enter_file, exit_file,  visit_file), DeclsContext(enter_decls, exit_decls,  visit_decls), DeclContext(enter_decl, exit_decl,  visit_decl), Var_declContext(enter_var_decl, exit_var_decl,  visit_var_decl), Var_decl_tyContext(enter_var_decl_ty, exit_var_decl_ty,  visit_var_decl_ty), Var_decl_initContext(enter_var_decl_init, exit_var_decl_init,  visit_var_decl_init), Fn_declContext(enter_fn_decl, exit_fn_decl,  visit_fn_decl), Ty_declContext(enter_ty_decl, exit_ty_decl,  visit_ty_decl), ParamsContext(enter_params, exit_params,  visit_params), Param_listContext(enter_param_list, exit_param_list,  visit_param_list), ParamContext(enter_param, exit_param,  visit_param), TysContext(enter_tys, exit_tys,  visit_tys), TyContext(enter_ty, exit_ty,  visit_ty), BlockContext(enter_block, exit_block,  visit_block), StmtsContext(enter_stmts, exit_stmts,  visit_stmts), StmtContext(enter_stmt, exit_stmt,  visit_stmt), Expr_stmtContext(enter_expr_stmt, exit_expr_stmt,  visit_expr_stmt), Branch_stmtContext(enter_branch_stmt, exit_branch_stmt,  visit_branch_stmt), Iter_stmtContext(enter_iter_stmt, exit_iter_stmt,  visit_iter_stmt), Return_stmtContext(enter_return_stmt, exit_return_stmt,  visit_return_stmt), Let_stmtContext(enter_let_stmt, exit_let_stmt,  visit_let_stmt), ExprContext(enter_expr, exit_expr,  visit_expr), Assign_exprContext(enter_assign_expr, exit_assign_expr,  visit_assign_expr), VarContext(enter_var, exit_var,  visit_var), MagicContext(enter_magic, exit_magic,  visit_magic), Cmp_preced_opContext(enter_cmp_preced_op, exit_cmp_preced_op,  visit_cmp_preced_op), Add_preced_opContext(enter_add_preced_op, exit_add_preced_op,  visit_add_preced_op), Mul_preced_opContext(enter_mul_preced_op, exit_mul_preced_op,  visit_mul_preced_op), Apply_listContext(enter_apply_list, exit_apply_list,  visit_apply_list), ArgsContext(enter_args, exit_args,  visit_args), 
     }; listener = dyn CFoodListener<'arena, Tok>, visitor = CFoodVisitor,
 }
 
@@ -387,7 +390,7 @@ where
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			{
 			/*InvokeRule decls*/
-			recog.base.set_state(72);
+			recog.base.set_state(74);
 			recog.decls()?;
 			}
 			Ok(())
@@ -490,18 +493,19 @@ where
         recog.base.enter_rule(DeclsContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 2, RULE_decls)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena DeclsContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(78);
+			recog.base.set_state(80);
 			recog.err_handler.sync(&mut recog.base)?;
 			match recog.base.input.la(1) {
-			    CFood_KW_type |CFood_TY_int |CFood_TY_float |CFood_TY_void |CFood_TYPE  => {
+			    CFood_KW_type |CFood_TY_int |CFood_TY_float |CFood_TY_str |CFood_TY_void |
+			    CFood_TYPE  => {
 			        /*------- Outer Most Alt 1 -------*/
 			        unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			        {
 			        /*InvokeRule decl*/
-			        recog.base.set_state(74);
+			        recog.base.set_state(76);
 			        recog.decl()?;
 			        /*InvokeRule decls*/
-			        recog.base.set_state(75);
+			        recog.base.set_state(77);
 			        recog.decls()?;
 			        }}
 			    CFood_EOF  => {
@@ -615,7 +619,7 @@ where
         recog.base.enter_rule(DeclContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 4, RULE_decl)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena DeclContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(83);
+			recog.base.set_state(85);
 			recog.err_handler.sync(&mut recog.base)?;
 			match recog.get_interpreter().adaptive_predict(1,&mut recog.base)? {
 				1 =>{
@@ -623,7 +627,7 @@ where
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 					{
 					/*InvokeRule var_decl*/
-					recog.base.set_state(80);
+					recog.base.set_state(82);
 					recog.var_decl()?;
 					}
 				}
@@ -633,7 +637,7 @@ where
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(2); }
 					{
 					/*InvokeRule ty_decl*/
-					recog.base.set_state(81);
+					recog.base.set_state(83);
 					recog.ty_decl()?;
 					}
 				}
@@ -643,7 +647,7 @@ where
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(3); }
 					{
 					/*InvokeRule fn_decl*/
-					recog.base.set_state(82);
+					recog.base.set_state(84);
 					recog.fn_decl()?;
 					}
 				}
@@ -762,12 +766,12 @@ where
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			{
 			/*InvokeRule var_decl_ty*/
-			recog.base.set_state(85);
+			recog.base.set_state(87);
 			recog.var_decl_ty()?;
 			/*InvokeRule var_decl_init*/
-			recog.base.set_state(86);
+			recog.base.set_state(88);
 			recog.var_decl_init()?;
-			recog.base.set_state(87);
+			recog.base.set_state(89);
 			recog.base.match_token(CFood_SEMICOLON,&mut recog.err_handler)?;
 			}
 			Ok(())
@@ -845,13 +849,6 @@ where
     /// Retrieves first TerminalNode corresponding to token IDENT
     /// Returns `None` if there is no child corresponding to token IDENT
     fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
-    /// Retrieves first TerminalNode corresponding to token BRACKET_L
-    /// Returns `None` if there is no child corresponding to token BRACKET_L
-    fn BRACKET_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
-    fn lit(&self) -> Option<&'arena LitContextAll<'input, 'arena, Tok>>;
-    /// Retrieves first TerminalNode corresponding to token BRACKET_R
-    /// Returns `None` if there is no child corresponding to token BRACKET_R
-    fn BRACKET_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
 }
 
 impl<'input, 'arena, Tok: Token + 'input> Var_decl_tyContextAttrs<'input, 'arena, Tok> for Var_decl_tyContext<'input, 'arena, Tok>
@@ -865,19 +862,6 @@ where
     /// Returns `None` if there is no child corresponding to token IDENT
     fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
         self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_IDENT)
-    }
-    /// Retrieves first TerminalNode corresponding to token BRACKET_L
-    /// Returns `None` if there is no child corresponding to token BRACKET_L
-    fn BRACKET_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
-        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_BRACKET_L)
-    }
-    fn lit(&self) -> Option<&'arena LitContextAll<'input, 'arena, Tok>> {
-        self.child_of_type(0)
-    }
-    /// Retrieves first TerminalNode corresponding to token BRACKET_R
-    /// Returns `None` if there is no child corresponding to token BRACKET_R
-    fn BRACKET_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
-        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_BRACKET_R)
     }
 }
 
@@ -894,41 +878,14 @@ where
         recog.base.enter_rule(Var_decl_tyContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 8, RULE_var_decl_ty)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena Var_decl_tyContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(98);
-			recog.err_handler.sync(&mut recog.base)?;
-			match recog.get_interpreter().adaptive_predict(2,&mut recog.base)? {
-				1 =>{
-					/*------- Outer Most Alt 1 -------*/
-					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
-					{
-					/*InvokeRule ty*/
-					recog.base.set_state(89);
-					recog.ty()?;
-					recog.base.set_state(90);
-					recog.base.match_token(CFood_IDENT,&mut recog.err_handler)?;
-					}
-				}
-			,
-				2 =>{
-					/*------- Outer Most Alt 2 -------*/
-					unsafe { recog.ctx_mut().unwrap().set_alt_number(2); }
-					{
-					/*InvokeRule ty*/
-					recog.base.set_state(92);
-					recog.ty()?;
-					recog.base.set_state(93);
-					recog.base.match_token(CFood_IDENT,&mut recog.err_handler)?;
-					recog.base.set_state(94);
-					recog.base.match_token(CFood_BRACKET_L,&mut recog.err_handler)?;
-					/*InvokeRule lit*/
-					recog.base.set_state(95);
-					recog.lit()?;
-					recog.base.set_state(96);
-					recog.base.match_token(CFood_BRACKET_R,&mut recog.err_handler)?;
-					}
-				}
-
-				_ => {}
+			/*------- Outer Most Alt 1 -------*/
+			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
+			{
+			/*InvokeRule ty*/
+			recog.base.set_state(91);
+			recog.ty()?;
+			recog.base.set_state(92);
+			recog.base.match_token(CFood_IDENT,&mut recog.err_handler)?;
 			}
 			Ok(())
 		})();
@@ -1034,17 +991,17 @@ where
         recog.base.enter_rule(Var_decl_initContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 10, RULE_var_decl_init)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena Var_decl_initContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(103);
+			recog.base.set_state(97);
 			recog.err_handler.sync(&mut recog.base)?;
 			match recog.base.input.la(1) {
 			    CFood_ASSIGN  => {
 			        /*------- Outer Most Alt 1 -------*/
 			        unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			        {
-			        recog.base.set_state(100);
+			        recog.base.set_state(94);
 			        recog.base.match_token(CFood_ASSIGN,&mut recog.err_handler)?;
 			        /*InvokeRule expr*/
-			        recog.base.set_state(101);
+			        recog.base.set_state(95);
 			        recog.expr()?;
 			        }}
 			    CFood_SEMICOLON  => {
@@ -1170,15 +1127,15 @@ where
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			{
 			/*InvokeRule ty*/
-			recog.base.set_state(105);
+			recog.base.set_state(99);
 			recog.ty()?;
-			recog.base.set_state(106);
+			recog.base.set_state(100);
 			recog.base.match_token(CFood_IDENT,&mut recog.err_handler)?;
 			/*InvokeRule params*/
-			recog.base.set_state(107);
+			recog.base.set_state(101);
 			recog.params()?;
 			/*InvokeRule block*/
-			recog.base.set_state(108);
+			recog.base.set_state(102);
 			recog.block()?;
 			}
 			Ok(())
@@ -1328,20 +1285,20 @@ where
 			/*------- Outer Most Alt 1 -------*/
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			{
-			recog.base.set_state(110);
+			recog.base.set_state(104);
 			recog.base.match_token(CFood_KW_type,&mut recog.err_handler)?;
-			recog.base.set_state(111);
+			recog.base.set_state(105);
 			recog.base.match_token(CFood_TYPE,&mut recog.err_handler)?;
-			recog.base.set_state(112);
+			recog.base.set_state(106);
 			recog.base.match_token(CFood_ASSIGN,&mut recog.err_handler)?;
-			recog.base.set_state(113);
+			recog.base.set_state(107);
 			recog.base.match_token(CFood_PAREN_L,&mut recog.err_handler)?;
 			/*InvokeRule tys*/
-			recog.base.set_state(114);
+			recog.base.set_state(108);
 			recog.tys()?;
-			recog.base.set_state(115);
+			recog.base.set_state(109);
 			recog.base.match_token(CFood_PAREN_R,&mut recog.err_handler)?;
-			recog.base.set_state(116);
+			recog.base.set_state(110);
 			recog.base.match_token(CFood_SEMICOLON,&mut recog.err_handler)?;
 			}
 			Ok(())
@@ -1464,19 +1421,19 @@ where
         recog.base.enter_rule(ParamsContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 16, RULE_params)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena ParamsContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(127);
+			recog.base.set_state(121);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.get_interpreter().adaptive_predict(4,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(3,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 					{
-					recog.base.set_state(118);
+					recog.base.set_state(112);
 					recog.base.match_token(CFood_PAREN_L,&mut recog.err_handler)?;
 					/*InvokeRule param_list*/
-					recog.base.set_state(119);
+					recog.base.set_state(113);
 					recog.param_list()?;
-					recog.base.set_state(120);
+					recog.base.set_state(114);
 					recog.base.match_token(CFood_PAREN_R,&mut recog.err_handler)?;
 					}
 				}
@@ -1485,11 +1442,11 @@ where
 					/*------- Outer Most Alt 2 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(2); }
 					{
-					recog.base.set_state(122);
+					recog.base.set_state(116);
 					recog.base.match_token(CFood_PAREN_L,&mut recog.err_handler)?;
-					recog.base.set_state(123);
+					recog.base.set_state(117);
 					recog.base.match_token(CFood_TY_void,&mut recog.err_handler)?;
-					recog.base.set_state(124);
+					recog.base.set_state(118);
 					recog.base.match_token(CFood_PAREN_R,&mut recog.err_handler)?;
 					}
 				}
@@ -1498,9 +1455,9 @@ where
 					/*------- Outer Most Alt 3 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(3); }
 					{
-					recog.base.set_state(125);
+					recog.base.set_state(119);
 					recog.base.match_token(CFood_PAREN_L,&mut recog.err_handler)?;
-					recog.base.set_state(126);
+					recog.base.set_state(120);
 					recog.base.match_token(CFood_PAREN_R,&mut recog.err_handler)?;
 					}
 				}
@@ -1615,20 +1572,20 @@ where
         recog.base.enter_rule(Param_listContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 18, RULE_param_list)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena Param_listContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(134);
+			recog.base.set_state(128);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.get_interpreter().adaptive_predict(5,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(4,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 					{
 					/*InvokeRule param*/
-					recog.base.set_state(129);
+					recog.base.set_state(123);
 					recog.param()?;
-					recog.base.set_state(130);
+					recog.base.set_state(124);
 					recog.base.match_token(CFood_COMMA,&mut recog.err_handler)?;
 					/*InvokeRule param_list*/
-					recog.base.set_state(131);
+					recog.base.set_state(125);
 					recog.param_list()?;
 					}
 				}
@@ -1638,7 +1595,7 @@ where
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(2); }
 					{
 					/*InvokeRule param*/
-					recog.base.set_state(133);
+					recog.base.set_state(127);
 					recog.param()?;
 					}
 				}
@@ -1745,7 +1702,7 @@ where
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			{
 			/*InvokeRule var_decl_ty*/
-			recog.base.set_state(136);
+			recog.base.set_state(130);
 			recog.var_decl_ty()?;
 			}
 			Ok(())
@@ -2154,7 +2111,7 @@ where
         recog.base.enter_rule(LitContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 22, RULE_lit)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena LitContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(141);
+			recog.base.set_state(135);
 			recog.err_handler.sync(&mut recog.base)?;
 			match recog.base.input.la(1) {
 			    CFood_INT  => {
@@ -2165,7 +2122,7 @@ where
 			        });
 			        let _local_ctx_fn = |recog: &Self| -> &'arena Lit_intContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 			        {
-			        recog.base.set_state(138);
+			        recog.base.set_state(132);
 			        recog.base.match_token(CFood_INT,&mut recog.err_handler)?;
 			        }}
 			    CFood_FLOAT  => {
@@ -2176,7 +2133,7 @@ where
 			        });
 			        let _local_ctx_fn = |recog: &Self| -> &'arena Lit_floatContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 			        {
-			        recog.base.set_state(139);
+			        recog.base.set_state(133);
 			        recog.base.match_token(CFood_FLOAT,&mut recog.err_handler)?;
 			        }}
 			    CFood_CONSTR  => {
@@ -2187,7 +2144,7 @@ where
 			        });
 			        let _local_ctx_fn = |recog: &Self| -> &'arena Lit_constrContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 			        {
-			        recog.base.set_state(140);
+			        recog.base.set_state(134);
 			        recog.base.match_token(CFood_CONSTR,&mut recog.err_handler)?;
 			        }}
 				_ => Err(ANTLRError::no_alt(&mut recog.base))?
@@ -2300,20 +2257,20 @@ where
         recog.base.enter_rule(TysContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 24, RULE_tys)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena TysContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(148);
+			recog.base.set_state(142);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.get_interpreter().adaptive_predict(7,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(6,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 					{
 					/*InvokeRule ty_kind*/
-					recog.base.set_state(143);
+					recog.base.set_state(137);
 					recog.ty_kind()?;
-					recog.base.set_state(144);
+					recog.base.set_state(138);
 					recog.base.match_token(CFood_COMMA,&mut recog.err_handler)?;
 					/*InvokeRule tys*/
-					recog.base.set_state(145);
+					recog.base.set_state(139);
 					recog.tys()?;
 					}
 				}
@@ -2323,7 +2280,7 @@ where
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(2); }
 					{
 					/*InvokeRule ty_kind*/
-					recog.base.set_state(147);
+					recog.base.set_state(141);
 					recog.ty_kind()?;
 					}
 				}
@@ -2438,15 +2395,15 @@ where
         recog.base.enter_rule(TyContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 26, RULE_ty)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena TyContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(155);
+			recog.base.set_state(149);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.get_interpreter().adaptive_predict(8,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(7,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 					{
 					/*InvokeRule ty_kind*/
-					recog.base.set_state(150);
+					recog.base.set_state(144);
 					recog.ty_kind()?;
 					}
 				}
@@ -2456,12 +2413,12 @@ where
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(2); }
 					{
 					/*InvokeRule ty_kind*/
-					recog.base.set_state(151);
+					recog.base.set_state(145);
 					recog.ty_kind()?;
-					recog.base.set_state(152);
+					recog.base.set_state(146);
 					recog.base.match_token(CFood_ARROW,&mut recog.err_handler)?;
 					/*InvokeRule ty*/
-					recog.base.set_state(153);
+					recog.base.set_state(147);
 					recog.ty()?;
 					}
 				}
@@ -2593,6 +2550,9 @@ where
 	/// Retrieves first TerminalNode corresponding to token TY_float
 	/// Returns `None` if there is no child corresponding to token TY_float
 	fn TY_float(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+	/// Retrieves first TerminalNode corresponding to token TY_str
+	/// Returns `None` if there is no child corresponding to token TY_str
+	fn TY_str(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
 	/// Retrieves first TerminalNode corresponding to token TY_void
 	/// Returns `None` if there is no child corresponding to token TY_void
 	fn TY_void(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
@@ -2609,6 +2569,11 @@ impl<'input: 'arena, 'arena, Tok: Token + 'input> Ty_kind_tyContextAttrs<'input,
     /// Returns `None` if there is no child corresponding to token TY_float
     fn TY_float(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
         self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_TY_float)
+    }
+    /// Retrieves first TerminalNode corresponding to token TY_str
+    /// Returns `None` if there is no child corresponding to token TY_str
+    fn TY_str(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_TY_str)
     }
     /// Retrieves first TerminalNode corresponding to token TY_void
     /// Returns `None` if there is no child corresponding to token TY_void
@@ -2795,7 +2760,7 @@ where
         recog.base.enter_rule(Ty_kindContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 28, RULE_ty_kind)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena Ty_kindContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(161);
+			recog.base.set_state(156);
 			recog.err_handler.sync(&mut recog.base)?;
 			match recog.base.input.la(1) {
 			    CFood_TY_int  => {
@@ -2806,7 +2771,7 @@ where
 			        });
 			        let _local_ctx_fn = |recog: &Self| -> &'arena Ty_kind_tyContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 			        {
-			        recog.base.set_state(157);
+			        recog.base.set_state(151);
 			        recog.base.match_token(CFood_TY_int,&mut recog.err_handler)?;
 			        }}
 			    CFood_TY_float  => {
@@ -2817,10 +2782,10 @@ where
 			        });
 			        let _local_ctx_fn = |recog: &Self| -> &'arena Ty_kind_tyContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 			        {
-			        recog.base.set_state(158);
+			        recog.base.set_state(152);
 			        recog.base.match_token(CFood_TY_float,&mut recog.err_handler)?;
 			        }}
-			    CFood_TY_void  => {
+			    CFood_TY_str  => {
 			        /*------- Outer Most Alt 3 -------*/
 			        recog.base.with_mut_ctx(|ctx| {
 			            Ty_kind_tyContextExt::copy_from(ctx);
@@ -2828,18 +2793,29 @@ where
 			        });
 			        let _local_ctx_fn = |recog: &Self| -> &'arena Ty_kind_tyContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 			        {
-			        recog.base.set_state(159);
+			        recog.base.set_state(153);
+			        recog.base.match_token(CFood_TY_str,&mut recog.err_handler)?;
+			        }}
+			    CFood_TY_void  => {
+			        /*------- Outer Most Alt 4 -------*/
+			        recog.base.with_mut_ctx(|ctx| {
+			            Ty_kind_tyContextExt::copy_from(ctx);
+			            ctx.set_alt_number(4);
+			        });
+			        let _local_ctx_fn = |recog: &Self| -> &'arena Ty_kind_tyContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
+			        {
+			        recog.base.set_state(154);
 			        recog.base.match_token(CFood_TY_void,&mut recog.err_handler)?;
 			        }}
 			    CFood_TYPE  => {
-			        /*------- Outer Most Alt 4 -------*/
+			        /*------- Outer Most Alt 5 -------*/
 			        recog.base.with_mut_ctx(|ctx| {
 			            Ty_kind_typeContextExt::copy_from(ctx);
-			            ctx.set_alt_number(4);
+			            ctx.set_alt_number(5);
 			        });
 			        let _local_ctx_fn = |recog: &Self| -> &'arena Ty_kind_typeContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 			        {
-			        recog.base.set_state(160);
+			        recog.base.set_state(155);
 			        recog.base.match_token(CFood_TYPE,&mut recog.err_handler)?;
 			        }}
 				_ => Err(ANTLRError::no_alt(&mut recog.base))?
@@ -2959,12 +2935,12 @@ where
 			/*------- Outer Most Alt 1 -------*/
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			{
-			recog.base.set_state(163);
+			recog.base.set_state(158);
 			recog.base.match_token(CFood_BRACE_L,&mut recog.err_handler)?;
 			/*InvokeRule stmts*/
-			recog.base.set_state(164);
+			recog.base.set_state(159);
 			recog.stmts()?;
-			recog.base.set_state(165);
+			recog.base.set_state(160);
 			recog.base.match_token(CFood_BRACE_R,&mut recog.err_handler)?;
 			}
 			Ok(())
@@ -3067,20 +3043,21 @@ where
         recog.base.enter_rule(StmtsContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 32, RULE_stmts)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena StmtsContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(171);
+			recog.base.set_state(166);
 			recog.err_handler.sync(&mut recog.base)?;
 			match recog.base.input.la(1) {
 			    CFood_KW_while |CFood_KW_if |CFood_KW_return |CFood_KW_let |CFood_TY_int |
-			    CFood_TY_float |CFood_TY_void |CFood_PAREN_L |CFood_BRACE_L |CFood_SEMICOLON |
+			    CFood_TY_float |CFood_TY_str |CFood_TY_void |CFood_MAGIC_printf |
+			    CFood_MAGIC_scanf |CFood_PAREN_L |CFood_BRACE_L |CFood_SEMICOLON |
 			    CFood_TYPE |CFood_IDENT |CFood_INT |CFood_FLOAT |CFood_CONSTR  => {
 			        /*------- Outer Most Alt 1 -------*/
 			        unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			        {
 			        /*InvokeRule stmt*/
-			        recog.base.set_state(167);
+			        recog.base.set_state(162);
 			        recog.stmt()?;
 			        /*InvokeRule stmts*/
-			        recog.base.set_state(168);
+			        recog.base.set_state(163);
 			        recog.stmts()?;
 			        }}
 			    CFood_BRACE_R  => {
@@ -3218,15 +3195,15 @@ where
         recog.base.enter_rule(StmtContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 34, RULE_stmt)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena StmtContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(181);
+			recog.base.set_state(176);
 			recog.err_handler.sync(&mut recog.base)?;
 			match recog.base.input.la(1) {
-			    CFood_TY_int |CFood_TY_float |CFood_TY_void |CFood_TYPE  => {
+			    CFood_TY_int |CFood_TY_float |CFood_TY_str |CFood_TY_void |CFood_TYPE  => {
 			        /*------- Outer Most Alt 1 -------*/
 			        unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			        {
 			        /*InvokeRule var_decl*/
-			        recog.base.set_state(173);
+			        recog.base.set_state(168);
 			        recog.var_decl()?;
 			        }}
 			    CFood_KW_let  => {
@@ -3234,15 +3211,16 @@ where
 			        unsafe { recog.ctx_mut().unwrap().set_alt_number(2); }
 			        {
 			        /*InvokeRule let_stmt*/
-			        recog.base.set_state(174);
+			        recog.base.set_state(169);
 			        recog.let_stmt()?;
 			        }}
-			    CFood_PAREN_L |CFood_IDENT |CFood_INT |CFood_FLOAT |CFood_CONSTR  => {
+			    CFood_MAGIC_printf |CFood_MAGIC_scanf |CFood_PAREN_L |CFood_IDENT |
+			    CFood_INT |CFood_FLOAT |CFood_CONSTR  => {
 			        /*------- Outer Most Alt 3 -------*/
 			        unsafe { recog.ctx_mut().unwrap().set_alt_number(3); }
 			        {
 			        /*InvokeRule expr_stmt*/
-			        recog.base.set_state(175);
+			        recog.base.set_state(170);
 			        recog.expr_stmt()?;
 			        }}
 			    CFood_KW_if  => {
@@ -3250,7 +3228,7 @@ where
 			        unsafe { recog.ctx_mut().unwrap().set_alt_number(4); }
 			        {
 			        /*InvokeRule branch_stmt*/
-			        recog.base.set_state(176);
+			        recog.base.set_state(171);
 			        recog.branch_stmt()?;
 			        }}
 			    CFood_KW_while  => {
@@ -3258,7 +3236,7 @@ where
 			        unsafe { recog.ctx_mut().unwrap().set_alt_number(5); }
 			        {
 			        /*InvokeRule iter_stmt*/
-			        recog.base.set_state(177);
+			        recog.base.set_state(172);
 			        recog.iter_stmt()?;
 			        }}
 			    CFood_KW_return  => {
@@ -3266,7 +3244,7 @@ where
 			        unsafe { recog.ctx_mut().unwrap().set_alt_number(6); }
 			        {
 			        /*InvokeRule return_stmt*/
-			        recog.base.set_state(178);
+			        recog.base.set_state(173);
 			        recog.return_stmt()?;
 			        }}
 			    CFood_BRACE_L  => {
@@ -3274,14 +3252,14 @@ where
 			        unsafe { recog.ctx_mut().unwrap().set_alt_number(7); }
 			        {
 			        /*InvokeRule block*/
-			        recog.base.set_state(179);
+			        recog.base.set_state(174);
 			        recog.block()?;
 			        }}
 			    CFood_SEMICOLON  => {
 			        /*------- Outer Most Alt 8 -------*/
 			        unsafe { recog.ctx_mut().unwrap().set_alt_number(8); }
 			        {
-			        recog.base.set_state(180);
+			        recog.base.set_state(175);
 			        recog.base.match_token(CFood_SEMICOLON,&mut recog.err_handler)?;
 			        }}
 				_ => Err(ANTLRError::no_alt(&mut recog.base))?
@@ -3394,9 +3372,9 @@ where
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			{
 			/*InvokeRule expr*/
-			recog.base.set_state(183);
+			recog.base.set_state(178);
 			recog.expr()?;
-			recog.base.set_state(184);
+			recog.base.set_state(179);
 			recog.base.match_token(CFood_SEMICOLON,&mut recog.err_handler)?;
 			}
 			Ok(())
@@ -3538,24 +3516,24 @@ where
         recog.base.enter_rule(Branch_stmtContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 38, RULE_branch_stmt)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena Branch_stmtContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(200);
+			recog.base.set_state(195);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.get_interpreter().adaptive_predict(12,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(11,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 					{
-					recog.base.set_state(186);
+					recog.base.set_state(181);
 					recog.base.match_token(CFood_KW_if,&mut recog.err_handler)?;
-					recog.base.set_state(187);
+					recog.base.set_state(182);
 					recog.base.match_token(CFood_PAREN_L,&mut recog.err_handler)?;
 					/*InvokeRule expr*/
-					recog.base.set_state(188);
+					recog.base.set_state(183);
 					recog.expr()?;
-					recog.base.set_state(189);
+					recog.base.set_state(184);
 					recog.base.match_token(CFood_PAREN_R,&mut recog.err_handler)?;
 					/*InvokeRule stmt*/
-					recog.base.set_state(190);
+					recog.base.set_state(185);
 					let tmp = recog.stmt()?;
 					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Branch_stmtContext<TF::Tok>>().unwrap().then_branch = Some(tmp); } 
 					}
@@ -3565,23 +3543,23 @@ where
 					/*------- Outer Most Alt 2 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(2); }
 					{
-					recog.base.set_state(192);
+					recog.base.set_state(187);
 					recog.base.match_token(CFood_KW_if,&mut recog.err_handler)?;
-					recog.base.set_state(193);
+					recog.base.set_state(188);
 					recog.base.match_token(CFood_PAREN_L,&mut recog.err_handler)?;
 					/*InvokeRule expr*/
-					recog.base.set_state(194);
+					recog.base.set_state(189);
 					recog.expr()?;
-					recog.base.set_state(195);
+					recog.base.set_state(190);
 					recog.base.match_token(CFood_PAREN_R,&mut recog.err_handler)?;
 					/*InvokeRule stmt*/
-					recog.base.set_state(196);
+					recog.base.set_state(191);
 					let tmp = recog.stmt()?;
 					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Branch_stmtContext<TF::Tok>>().unwrap().then_branch = Some(tmp); } 
-					recog.base.set_state(197);
+					recog.base.set_state(192);
 					recog.base.match_token(CFood_KW_else,&mut recog.err_handler)?;
 					/*InvokeRule stmt*/
-					recog.base.set_state(198);
+					recog.base.set_state(193);
 					let tmp = recog.stmt()?;
 					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Branch_stmtContext<TF::Tok>>().unwrap().else_branch = Some(tmp); } 
 					}
@@ -3716,17 +3694,17 @@ where
 			/*------- Outer Most Alt 1 -------*/
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			{
-			recog.base.set_state(202);
+			recog.base.set_state(197);
 			recog.base.match_token(CFood_KW_while,&mut recog.err_handler)?;
-			recog.base.set_state(203);
+			recog.base.set_state(198);
 			recog.base.match_token(CFood_PAREN_L,&mut recog.err_handler)?;
 			/*InvokeRule expr*/
-			recog.base.set_state(204);
+			recog.base.set_state(199);
 			recog.expr()?;
-			recog.base.set_state(205);
+			recog.base.set_state(200);
 			recog.base.match_token(CFood_PAREN_R,&mut recog.err_handler)?;
 			/*InvokeRule stmt*/
-			recog.base.set_state(206);
+			recog.base.set_state(201);
 			recog.stmt()?;
 			}
 			Ok(())
@@ -3841,16 +3819,16 @@ where
         recog.base.enter_rule(Return_stmtContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 42, RULE_return_stmt)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena Return_stmtContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(214);
+			recog.base.set_state(209);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.get_interpreter().adaptive_predict(13,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(12,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 					{
-					recog.base.set_state(208);
+					recog.base.set_state(203);
 					recog.base.match_token(CFood_KW_return,&mut recog.err_handler)?;
-					recog.base.set_state(209);
+					recog.base.set_state(204);
 					recog.base.match_token(CFood_SEMICOLON,&mut recog.err_handler)?;
 					}
 				}
@@ -3859,12 +3837,12 @@ where
 					/*------- Outer Most Alt 2 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(2); }
 					{
-					recog.base.set_state(210);
+					recog.base.set_state(205);
 					recog.base.match_token(CFood_KW_return,&mut recog.err_handler)?;
 					/*InvokeRule expr*/
-					recog.base.set_state(211);
+					recog.base.set_state(206);
 					recog.expr()?;
-					recog.base.set_state(212);
+					recog.base.set_state(207);
 					recog.base.match_token(CFood_SEMICOLON,&mut recog.err_handler)?;
 					}
 				}
@@ -4002,16 +3980,16 @@ where
 			/*------- Outer Most Alt 1 -------*/
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			{
-			recog.base.set_state(216);
+			recog.base.set_state(211);
 			recog.base.match_token(CFood_KW_let,&mut recog.err_handler)?;
-			recog.base.set_state(217);
+			recog.base.set_state(212);
 			recog.base.match_token(CFood_IDENT,&mut recog.err_handler)?;
-			recog.base.set_state(218);
+			recog.base.set_state(213);
 			recog.base.match_token(CFood_ASSIGN,&mut recog.err_handler)?;
 			/*InvokeRule expr*/
-			recog.base.set_state(219);
+			recog.base.set_state(214);
 			recog.expr()?;
-			recog.base.set_state(220);
+			recog.base.set_state(215);
 			recog.base.match_token(CFood_SEMICOLON,&mut recog.err_handler)?;
 			}
 			Ok(())
@@ -4114,15 +4092,15 @@ where
         recog.base.enter_rule(ExprContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 46, RULE_expr)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena ExprContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(224);
+			recog.base.set_state(219);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.get_interpreter().adaptive_predict(14,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(13,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 					{
 					/*InvokeRule assign_expr*/
-					recog.base.set_state(222);
+					recog.base.set_state(217);
 					recog.assign_expr()?;
 					}
 				}
@@ -4132,7 +4110,7 @@ where
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(2); }
 					{
 					/*InvokeRule calc_expr*/
-					recog.base.set_state(223);
+					recog.base.set_state(218);
 					recog.calc_expr()?;
 					}
 				}
@@ -4251,12 +4229,12 @@ where
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			{
 			/*InvokeRule var*/
-			recog.base.set_state(226);
+			recog.base.set_state(221);
 			recog.var()?;
-			recog.base.set_state(227);
+			recog.base.set_state(222);
 			recog.base.match_token(CFood_ASSIGN,&mut recog.err_handler)?;
 			/*InvokeRule expr*/
-			recog.base.set_state(228);
+			recog.base.set_state(223);
 			recog.expr()?;
 			}
 			Ok(())
@@ -4333,13 +4311,6 @@ where
     /// Retrieves first TerminalNode corresponding to token IDENT
     /// Returns `None` if there is no child corresponding to token IDENT
     fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
-    /// Retrieves first TerminalNode corresponding to token BRACKET_L
-    /// Returns `None` if there is no child corresponding to token BRACKET_L
-    fn BRACKET_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>>;
-    /// Retrieves first TerminalNode corresponding to token BRACKET_R
-    /// Returns `None` if there is no child corresponding to token BRACKET_R
-    fn BRACKET_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
 }
 
 impl<'input, 'arena, Tok: Token + 'input> VarContextAttrs<'input, 'arena, Tok> for VarContext<'input, 'arena, Tok>
@@ -4350,19 +4321,6 @@ where
     /// Returns `None` if there is no child corresponding to token IDENT
     fn IDENT(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
         self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_IDENT)
-    }
-    /// Retrieves first TerminalNode corresponding to token BRACKET_L
-    /// Returns `None` if there is no child corresponding to token BRACKET_L
-    fn BRACKET_L(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
-        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_BRACKET_L)
-    }
-    fn expr(&self) -> Option<&'arena ExprContextAll<'input, 'arena, Tok>> {
-        self.child_of_type(0)
-    }
-    /// Retrieves first TerminalNode corresponding to token BRACKET_R
-    /// Returns `None` if there is no child corresponding to token BRACKET_R
-    fn BRACKET_R(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
-        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_BRACKET_R)
     }
 }
 
@@ -4379,35 +4337,11 @@ where
         recog.base.enter_rule(VarContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 50, RULE_var)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena VarContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(236);
-			recog.err_handler.sync(&mut recog.base)?;
-			match recog.get_interpreter().adaptive_predict(15,&mut recog.base)? {
-				1 =>{
-					/*------- Outer Most Alt 1 -------*/
-					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
-					{
-					recog.base.set_state(230);
-					recog.base.match_token(CFood_IDENT,&mut recog.err_handler)?;
-					}
-				}
-			,
-				2 =>{
-					/*------- Outer Most Alt 2 -------*/
-					unsafe { recog.ctx_mut().unwrap().set_alt_number(2); }
-					{
-					recog.base.set_state(231);
-					recog.base.match_token(CFood_IDENT,&mut recog.err_handler)?;
-					recog.base.set_state(232);
-					recog.base.match_token(CFood_BRACKET_L,&mut recog.err_handler)?;
-					/*InvokeRule expr*/
-					recog.base.set_state(233);
-					recog.expr()?;
-					recog.base.set_state(234);
-					recog.base.match_token(CFood_BRACKET_R,&mut recog.err_handler)?;
-					}
-				}
-
-				_ => {}
+			/*------- Outer Most Alt 1 -------*/
+			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
+			{
+			recog.base.set_state(225);
+			recog.base.match_token(CFood_IDENT,&mut recog.err_handler)?;
 			}
 			Ok(())
 		})();
@@ -4723,9 +4657,9 @@ where
         recog.base.enter_rule(Calc_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 52, RULE_calc_expr)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena Calc_exprContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(243);
+			recog.base.set_state(232);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.get_interpreter().adaptive_predict(16,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(14,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					recog.base.with_mut_ctx(|ctx| {
@@ -4735,14 +4669,14 @@ where
 					let _local_ctx_fn = |recog: &Self| -> &'arena Calc_expr_useContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 					{
 					/*InvokeRule call_preced_expr*/
-					recog.base.set_state(238);
+					recog.base.set_state(227);
 					let tmp = recog.call_preced_expr()?;
 					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Calc_expr_useContext<TF::Tok>>().unwrap().lhs = Some(tmp); } 
 					/*InvokeRule cmp_preced_op*/
-					recog.base.set_state(239);
+					recog.base.set_state(228);
 					recog.cmp_preced_op()?;
 					/*InvokeRule call_preced_expr*/
-					recog.base.set_state(240);
+					recog.base.set_state(229);
 					let tmp = recog.call_preced_expr()?;
 					unsafe { recog.ctx_mut().unwrap().as_rule_context_mut::<Calc_expr_useContext<TF::Tok>>().unwrap().rhs = Some(tmp); } 
 					}
@@ -4757,7 +4691,7 @@ where
 					let _local_ctx_fn = |recog: &Self| -> &'arena Calc_expr_passContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 					{
 					/*InvokeRule call_preced_expr*/
-					recog.base.set_state(242);
+					recog.base.set_state(231);
 					recog.call_preced_expr()?;
 					}
 				}
@@ -4788,15 +4722,16 @@ where
 {
 	Call_preced_expr_passContext(Call_preced_expr_passContext<'input, 'arena, Tok>),
 	Call_preced_expr_useContext(Call_preced_expr_useContext<'input, 'arena, Tok>),
+	Call_preced_expr_magicContext(Call_preced_expr_magicContext<'input, 'arena, Tok>),
     Error(Call_preced_exprContext<'input, 'arena, Tok>)
 }
 
-dbt_antlr4::impl_rule_context! { Call_preced_exprContextAll { } { Call_preced_expr_passContext, Call_preced_expr_useContext, Error, } }
-dbt_antlr4::impl_parser_rule_context! { Call_preced_exprContextAll { } { Call_preced_expr_passContext, Call_preced_expr_useContext, Error, } }
-dbt_antlr4::impl_tree_trait_delegates! { CFoodParserNodeKind::Call_preced_exprContextAll { Call_preced_expr_passContext, Call_preced_expr_useContext, Error, } }
-dbt_antlr4::impl_node_inner! { CFoodParserNodeKind::Call_preced_exprContext::Call_preced_exprContextAll { Call_preced_expr_passContext, Call_preced_expr_useContext, Error, } }
-dbt_antlr4::impl_listener_dispatch! { CFoodListener::CFoodParserNodeKind::Call_preced_exprContextAll { Call_preced_expr_passContext(enter_call_preced_expr_pass, exit_call_preced_expr_pass), Call_preced_expr_useContext(enter_call_preced_expr_use, exit_call_preced_expr_use), } }
-dbt_antlr4::impl_visitable! { CFoodVisitor::Call_preced_exprContextAll { Call_preced_expr_passContext(visit_call_preced_expr_pass), Call_preced_expr_useContext(visit_call_preced_expr_use), } }
+dbt_antlr4::impl_rule_context! { Call_preced_exprContextAll { } { Call_preced_expr_passContext, Call_preced_expr_useContext, Call_preced_expr_magicContext, Error, } }
+dbt_antlr4::impl_parser_rule_context! { Call_preced_exprContextAll { } { Call_preced_expr_passContext, Call_preced_expr_useContext, Call_preced_expr_magicContext, Error, } }
+dbt_antlr4::impl_tree_trait_delegates! { CFoodParserNodeKind::Call_preced_exprContextAll { Call_preced_expr_passContext, Call_preced_expr_useContext, Call_preced_expr_magicContext, Error, } }
+dbt_antlr4::impl_node_inner! { CFoodParserNodeKind::Call_preced_exprContext::Call_preced_exprContextAll { Call_preced_expr_passContext, Call_preced_expr_useContext, Call_preced_expr_magicContext, Error, } }
+dbt_antlr4::impl_listener_dispatch! { CFoodListener::CFoodParserNodeKind::Call_preced_exprContextAll { Call_preced_expr_passContext(enter_call_preced_expr_pass, exit_call_preced_expr_pass), Call_preced_expr_useContext(enter_call_preced_expr_use, exit_call_preced_expr_use), Call_preced_expr_magicContext(enter_call_preced_expr_magic, exit_call_preced_expr_magic), } }
+dbt_antlr4::impl_visitable! { CFoodVisitor::Call_preced_exprContextAll { Call_preced_expr_passContext(visit_call_preced_expr_pass), Call_preced_expr_useContext(visit_call_preced_expr_use), Call_preced_expr_magicContext(visit_call_preced_expr_magic), } }
 
 impl<'input, 'arena, Tok> Deref for Call_preced_exprContextAll<'input, 'arena, Tok>
 where
@@ -4809,6 +4744,7 @@ where
 		match self{
 			Call_preced_expr_passContext(inner) => inner,
 			Call_preced_expr_useContext(inner) => inner,
+			Call_preced_expr_magicContext(inner) => inner,
             Error(inner) => inner
 		}
 	}
@@ -5058,6 +4994,99 @@ impl<'input: 'arena, 'arena, Tok: Token + 'input> Call_preced_expr_useContextExt
 	}
 }
 
+pub type Call_preced_expr_magicContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, Call_preced_expr_magicContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+
+pub trait Call_preced_expr_magicContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
+where
+    'input: 'arena,
+    Tok: Token + 'input,
+{
+	fn magic(&self) -> Option<&'arena MagicContextAll<'input, 'arena, Tok>>;
+	fn call_preced_expr(&self) -> Option<&'arena Call_preced_exprContextAll<'input, 'arena, Tok>>;
+}
+
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Call_preced_expr_magicContextAttrs<'input, 'arena, Tok> for Call_preced_expr_magicContext<'input, 'arena, Tok>
+{
+    fn magic(&self) -> Option<&'arena MagicContextAll<'input, 'arena, Tok>> {
+        self.child_of_type(0)
+    }
+    fn call_preced_expr(&self) -> Option<&'arena Call_preced_exprContextAll<'input, 'arena, Tok>> {
+        self.child_of_type(0)
+    }
+}
+#[derive(Debug)]
+pub struct Call_preced_expr_magicContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
+	base: Call_preced_exprContextExt<'input, 'arena, Tok>,
+    pd: PhantomData<(&'arena (), &'input Tok)>
+}
+
+impl<'input: 'arena, 'arena, Tok: Token + 'input> CustomRuleContext<'input, 'arena, Tok> for Call_preced_expr_magicContextExt<'input, 'arena, Tok>
+{
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::Call_preced_exprContext }
+	fn get_rule_index(&self) -> usize { RULE_call_preced_expr }
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: Call_preced_expr_magicContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_labeled_node(Call_preced_exprContextAll::Call_preced_expr_magicContext(ctx))
+    }
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a Call_preced_expr_magicContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            match dbt_antlr4::cast_unchecked!(node => Call_preced_exprContextAll<'input, 'arena, Tok>) {
+                Call_preced_exprContextAll::Call_preced_expr_magicContext(ctx) => Some(ctx),
+                _ => None
+            }
+        } else {
+            None
+        }
+    }
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut Call_preced_expr_magicContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            match dbt_antlr4::cast_unchecked!(node => mut Call_preced_exprContextAll<'input, 'arena, Tok>) {
+                Call_preced_exprContextAll::Call_preced_expr_magicContext(ctx) => Some(ctx),
+                _ => None
+            }
+        } else {
+            None
+        }
+    }
+}
+
+impl<'input, 'arena, Tok> Call_preced_exprContextAttrs<'input, 'arena, Tok> for Call_preced_expr_magicContext<'input, 'arena, Tok>
+where
+    'input: 'arena,
+    Tok: Token + 'input,
+{
+}
+
+impl<'input: 'arena, 'arena, Tok: Token + 'input> Call_preced_expr_magicContextExt<'input, 'arena, Tok> {
+	fn new(base: Call_preced_exprContextExt<'input, 'arena, Tok>) -> Self {
+        Self {
+            base,
+            pd: PhantomData
+        }
+    }
+
+	fn copy_from(src: &mut CFoodParserNode<'input, 'arena, Tok>) {
+        let invoking_state = src.get_invoking_state();
+        let ctx = {
+            let Some(base_ctx): Option<&mut Call_preced_exprContext<'input, 'arena, Tok>> = src.as_rule_context_mut() else {
+                panic!("invalid node type for copy_from!");
+            };
+            let tmp = unsafe { std::ptr::read(base_ctx) };
+            Call_preced_exprContextAll::Call_preced_expr_magicContext(tmp.morph(|ext_src| Self::new(ext_src)))
+        };
+        *dbt_antlr4::cast_unchecked!(src => mut Call_preced_exprContextAll<'input, 'arena, Tok>) = ctx;
+        src.set_invoking_state(invoking_state);
+        src.node_tag = <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag();
+	}
+}
+
 impl<'input, 'arena, Input, TF> CFoodParser<'input, 'arena, Input, TF>
 where
     'input: 'arena,
@@ -5071,9 +5100,9 @@ where
         recog.base.enter_rule(Call_preced_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 54, RULE_call_preced_expr)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena Call_preced_exprContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(249);
+			recog.base.set_state(241);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.get_interpreter().adaptive_predict(17,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(15,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					recog.base.with_mut_ctx(|ctx| {
@@ -5083,10 +5112,10 @@ where
 					let _local_ctx_fn = |recog: &Self| -> &'arena Call_preced_expr_useContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 					{
 					/*InvokeRule add_preced_expr*/
-					recog.base.set_state(245);
+					recog.base.set_state(234);
 					recog.add_preced_expr()?;
 					/*InvokeRule call_preced_expr*/
-					recog.base.set_state(246);
+					recog.base.set_state(235);
 					recog.call_preced_expr()?;
 					}
 				}
@@ -5094,18 +5123,158 @@ where
 				2 =>{
 					/*------- Outer Most Alt 2 -------*/
 					recog.base.with_mut_ctx(|ctx| {
-					    Call_preced_expr_passContextExt::copy_from(ctx);
+					    Call_preced_expr_magicContextExt::copy_from(ctx);
 					    ctx.set_alt_number(2);
+					});
+					let _local_ctx_fn = |recog: &Self| -> &'arena Call_preced_expr_magicContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
+					{
+					/*InvokeRule magic*/
+					recog.base.set_state(237);
+					recog.magic()?;
+					/*InvokeRule call_preced_expr*/
+					recog.base.set_state(238);
+					recog.call_preced_expr()?;
+					}
+				}
+			,
+				3 =>{
+					/*------- Outer Most Alt 3 -------*/
+					recog.base.with_mut_ctx(|ctx| {
+					    Call_preced_expr_passContextExt::copy_from(ctx);
+					    ctx.set_alt_number(3);
 					});
 					let _local_ctx_fn = |recog: &Self| -> &'arena Call_preced_expr_passContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 					{
 					/*InvokeRule add_preced_expr*/
-					recog.base.set_state(248);
+					recog.base.set_state(240);
 					recog.add_preced_expr()?;
 					}
 				}
 
 				_ => {}
+			}
+			Ok(())
+		})();
+		match result {
+            Ok(_)=>{},
+            Err(e) if !e.is_recoverable() => return Err(e),
+            Err(ref re) => {
+				recog.err_handler.report_error(&mut recog.base, re);
+				recog.err_handler.recover(&mut recog.base, re)?;
+			}
+		}
+		recog.base.exit_rule().map(|ctx: &'arena _| { ctx.as_rule_context().unwrap() })
+        })
+	}
+}
+//------------------- magic ----------------
+pub type MagicContextAll<'input, 'arena, Tok = CommonToken<'input>> = MagicContext<'input, 'arena, Tok>;
+
+pub type MagicContext<'input, 'arena, Tok = CommonToken<'input>> = BaseParserRuleContext<'input, 'arena, MagicContextExt<'input, 'arena, Tok>, CFoodParserNodeKind, Tok>;
+dbt_antlr4::impl_visitable! { CFoodVisitor::MagicContext(visit_magic) }
+#[derive(Debug)]
+pub struct MagicContextExt<'input: 'arena, 'arena, Tok: Token + 'input = CommonToken<'input>> {
+    ph: PhantomData<(&'arena (), &'input Tok)>,
+}
+
+impl<'input: 'arena, 'arena, Tok> CustomRuleContext<'input, 'arena, Tok> for MagicContextExt<'input, 'arena, Tok>
+where
+    Tok: Token + 'input,
+{
+	type NodeKind = CFoodParserNodeKind;
+    fn node_tag() -> CFoodParserNodeKind { CFoodParserNodeKind::MagicContext }
+	fn get_rule_index(&self) -> usize { RULE_magic }
+    fn make_node(
+        arena: &'arena Arena,
+        ctx: MagicContext<'input, 'arena, Tok>,
+    ) -> *mut CFoodParserNode<'input, 'arena, Tok> {
+        arena.alloc_zeroed_node(ctx)}
+    fn cast_from<'a>(
+        node: &'a CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a MagicContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => MagicContext<'input, 'arena, Tok>))
+        } else {
+            None
+        }
+    }
+    fn cast_from_mut<'a>(
+        node: &'a mut CFoodParserNode<'input, 'arena, Tok>,
+    ) -> Option<&'a mut MagicContext<'input, 'arena, Tok>> {
+        if node.node_tag() == <Self as CustomRuleContext<'input, 'arena, Tok>>::node_tag() {
+            Some(dbt_antlr4::cast_unchecked!(node.ctx_ptr() => mut MagicContext<'input, 'arena, Tok>))
+        } else {
+            None
+        }
+    }
+}
+
+impl<'input: 'arena, 'arena, Tok: Token + 'input> MagicContextExt<'input, 'arena, Tok>{
+	fn create(arena: &'arena Arena, parent: Option<&'arena CFoodParserNode<'input, 'arena, Tok>>, invoking_state: i32) -> Result<&'arena mut CFoodParserNode<'input, 'arena, Tok>, ANTLRError>
+    {
+        BaseParserRuleContext::create(arena, parent, invoking_state, MagicContextExt {
+				ph: PhantomData
+			}
+		)
+	}
+}
+
+pub trait MagicContextAttrs<'input, 'arena, Tok>: ParserRuleContext<'input, 'arena>
+where
+    'input: 'arena,
+    Tok: Token + 'input,
+{
+    /// Retrieves first TerminalNode corresponding to token MAGIC_printf
+    /// Returns `None` if there is no child corresponding to token MAGIC_printf
+    fn MAGIC_printf(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+    /// Retrieves first TerminalNode corresponding to token MAGIC_scanf
+    /// Returns `None` if there is no child corresponding to token MAGIC_scanf
+    fn MAGIC_scanf(&self) -> Option<&TerminalNode<'input, 'arena, Tok>>;
+}
+
+impl<'input, 'arena, Tok: Token + 'input> MagicContextAttrs<'input, 'arena, Tok> for MagicContext<'input, 'arena, Tok>
+where
+    'input: 'arena,
+{
+    /// Retrieves first TerminalNode corresponding to token MAGIC_printf
+    /// Returns `None` if there is no child corresponding to token MAGIC_printf
+    fn MAGIC_printf(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_MAGIC_printf)
+    }
+    /// Retrieves first TerminalNode corresponding to token MAGIC_scanf
+    /// Returns `None` if there is no child corresponding to token MAGIC_scanf
+    fn MAGIC_scanf(&self) -> Option<&TerminalNode<'input, 'arena, Tok>> {
+        self.children_of_type::<TerminalNode<Tok>>().into_iter().find(|child| child.symbol.get_token_type() == CFood_MAGIC_scanf)
+    }
+}
+
+impl<'input, 'arena, Input, TF> CFoodParser<'input, 'arena, Input, TF>
+where
+    'input: 'arena,
+    TF: TokenFactory<'input, 'arena> + 'arena,
+    Input: TokenStream<'input, 'arena, TF> + 'arena,
+{
+	pub fn magic(&mut self,) -> Result<&'arena MagicContextAll<'input, 'arena, TF::Tok>, ANTLRError> {
+        dbt_antlr4::maybe_grow_stack!({
+		let recog = self;
+        let _parentctx = recog.base.take_ctx();
+        recog.base.enter_rule(MagicContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 56, RULE_magic)?;
+        let _local_ctx_fn = |recog: &Self| -> &'arena MagicContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
+		let mut _la: i32 = -1;
+		let result: Result<(), ANTLRError> = (|| {
+			/*------- Outer Most Alt 1 -------*/
+			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
+			{
+			recog.base.set_state(243);
+			_la = recog.base.input.la(1);
+			if { !(_la==CFood_MAGIC_printf || _la==CFood_MAGIC_scanf) } {
+				recog.err_handler.recover_inline(&mut recog.base)?;
+			}
+			else {
+				if recog.base.input.la(1)==TOKEN_EOF { recog.base.matched_eof = true };
+				recog.err_handler.report_match(&mut recog.base);
+				recog.base.consume(&mut recog.err_handler)?;
+			}
 			}
 			Ok(())
 		})();
@@ -5415,12 +5584,12 @@ where
         dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Add_preced_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 56, RULE_add_preced_expr)?;
+        recog.base.enter_rule(Add_preced_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 58, RULE_add_preced_expr)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena Add_preced_exprContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(256);
+			recog.base.set_state(250);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.get_interpreter().adaptive_predict(18,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(16,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					recog.base.with_mut_ctx(|ctx| {
@@ -5430,13 +5599,13 @@ where
 					let _local_ctx_fn = |recog: &Self| -> &'arena Add_preced_expr_useContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 					{
 					/*InvokeRule mul_preced_expr*/
-					recog.base.set_state(251);
+					recog.base.set_state(245);
 					recog.mul_preced_expr()?;
 					/*InvokeRule add_preced_op*/
-					recog.base.set_state(252);
+					recog.base.set_state(246);
 					recog.add_preced_op()?;
 					/*InvokeRule add_preced_expr*/
-					recog.base.set_state(253);
+					recog.base.set_state(247);
 					recog.add_preced_expr()?;
 					}
 				}
@@ -5450,7 +5619,7 @@ where
 					let _local_ctx_fn = |recog: &Self| -> &'arena Add_preced_expr_passContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 					{
 					/*InvokeRule mul_preced_expr*/
-					recog.base.set_state(255);
+					recog.base.set_state(249);
 					recog.mul_preced_expr()?;
 					}
 				}
@@ -5765,12 +5934,12 @@ where
         dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Mul_preced_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 58, RULE_mul_preced_expr)?;
+        recog.base.enter_rule(Mul_preced_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 60, RULE_mul_preced_expr)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena Mul_preced_exprContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(263);
+			recog.base.set_state(257);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.get_interpreter().adaptive_predict(19,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(17,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					recog.base.with_mut_ctx(|ctx| {
@@ -5780,13 +5949,13 @@ where
 					let _local_ctx_fn = |recog: &Self| -> &'arena Mul_preced_expr_useContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 					{
 					/*InvokeRule atom_preced_expr*/
-					recog.base.set_state(258);
+					recog.base.set_state(252);
 					recog.atom_preced_expr()?;
 					/*InvokeRule mul_preced_op*/
-					recog.base.set_state(259);
+					recog.base.set_state(253);
 					recog.mul_preced_op()?;
 					/*InvokeRule mul_preced_expr*/
-					recog.base.set_state(260);
+					recog.base.set_state(254);
 					recog.mul_preced_expr()?;
 					}
 				}
@@ -5800,7 +5969,7 @@ where
 					let _local_ctx_fn = |recog: &Self| -> &'arena Mul_preced_expr_passContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 					{
 					/*InvokeRule atom_preced_expr*/
-					recog.base.set_state(262);
+					recog.base.set_state(256);
 					recog.atom_preced_expr()?;
 					}
 				}
@@ -6198,10 +6367,10 @@ where
         dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Atom_preced_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 60, RULE_atom_preced_expr)?;
+        recog.base.enter_rule(Atom_preced_exprContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 62, RULE_atom_preced_expr)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena Atom_preced_exprContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(268);
+			recog.base.set_state(262);
 			recog.err_handler.sync(&mut recog.base)?;
 			match recog.base.input.la(1) {
 			    CFood_PAREN_L  => {
@@ -6213,7 +6382,7 @@ where
 			        let _local_ctx_fn = |recog: &Self| -> &'arena Atom_preced_expr_apply_listContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 			        {
 			        /*InvokeRule apply_list*/
-			        recog.base.set_state(265);
+			        recog.base.set_state(259);
 			        recog.apply_list()?;
 			        }}
 			    CFood_IDENT  => {
@@ -6225,7 +6394,7 @@ where
 			        let _local_ctx_fn = |recog: &Self| -> &'arena Atom_preced_expr_varContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 			        {
 			        /*InvokeRule var*/
-			        recog.base.set_state(266);
+			        recog.base.set_state(260);
 			        recog.var()?;
 			        }}
 			    CFood_INT |CFood_FLOAT |CFood_CONSTR  => {
@@ -6237,7 +6406,7 @@ where
 			        let _local_ctx_fn = |recog: &Self| -> &'arena Atom_preced_expr_litContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 			        {
 			        /*InvokeRule lit*/
-			        recog.base.set_state(267);
+			        recog.base.set_state(261);
 			        recog.lit()?;
 			        }}
 				_ => Err(ANTLRError::no_alt(&mut recog.base))?
@@ -6379,16 +6548,16 @@ where
         dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Cmp_preced_opContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 62, RULE_cmp_preced_op)?;
+        recog.base.enter_rule(Cmp_preced_opContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 64, RULE_cmp_preced_op)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena Cmp_preced_opContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let mut _la: i32 = -1;
 		let result: Result<(), ANTLRError> = (|| {
 			/*------- Outer Most Alt 1 -------*/
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			{
-			recog.base.set_state(270);
+			recog.base.set_state(264);
 			_la = recog.base.input.la(1);
-			if { !((((_la) & !0x3f) == 0 && ((1usize << _la) & 8257536) != 0)) } {
+			if { !((((_la) & !0x3f) == 0 && ((1usize << _la) & 16515072) != 0)) } {
 				recog.err_handler.recover_inline(&mut recog.base)?;
 			}
 			else {
@@ -6502,14 +6671,14 @@ where
         dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Add_preced_opContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 64, RULE_add_preced_op)?;
+        recog.base.enter_rule(Add_preced_opContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 66, RULE_add_preced_op)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena Add_preced_opContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let mut _la: i32 = -1;
 		let result: Result<(), ANTLRError> = (|| {
 			/*------- Outer Most Alt 1 -------*/
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			{
-			recog.base.set_state(272);
+			recog.base.set_state(266);
 			_la = recog.base.input.la(1);
 			if { !(_la==CFood_PLUS || _la==CFood_SUB) } {
 				recog.err_handler.recover_inline(&mut recog.base)?;
@@ -6641,16 +6810,16 @@ where
         dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Mul_preced_opContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 66, RULE_mul_preced_op)?;
+        recog.base.enter_rule(Mul_preced_opContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 68, RULE_mul_preced_op)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena Mul_preced_opContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let mut _la: i32 = -1;
 		let result: Result<(), ANTLRError> = (|| {
 			/*------- Outer Most Alt 1 -------*/
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			{
-			recog.base.set_state(274);
+			recog.base.set_state(268);
 			_la = recog.base.input.la(1);
-			if { !((((_la) & !0x3f) == 0 && ((1usize << _la) & 503316480) != 0)) } {
+			if { !((((_la) & !0x3f) == 0 && ((1usize << _la) & 1006632960) != 0)) } {
 				recog.err_handler.recover_inline(&mut recog.base)?;
 			}
 			else {
@@ -6768,18 +6937,18 @@ where
         dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(Apply_listContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 68, RULE_apply_list)?;
+        recog.base.enter_rule(Apply_listContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 70, RULE_apply_list)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena Apply_listContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
 			/*------- Outer Most Alt 1 -------*/
 			unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 			{
-			recog.base.set_state(276);
+			recog.base.set_state(270);
 			recog.base.match_token(CFood_PAREN_L,&mut recog.err_handler)?;
 			/*InvokeRule args*/
-			recog.base.set_state(277);
+			recog.base.set_state(271);
 			recog.args()?;
-			recog.base.set_state(278);
+			recog.base.set_state(272);
 			recog.base.match_token(CFood_PAREN_R,&mut recog.err_handler)?;
 			}
 			Ok(())
@@ -6887,23 +7056,23 @@ where
         dbt_antlr4::maybe_grow_stack!({
 		let recog = self;
         let _parentctx = recog.base.take_ctx();
-        recog.base.enter_rule(ArgsContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 70, RULE_args)?;
+        recog.base.enter_rule(ArgsContextExt::create(recog.get_arena(), _parentctx, recog.get_state())?, 72, RULE_args)?;
         let _local_ctx_fn = |recog: &Self| -> &'arena ArgsContext<TF::Tok> {recog.ctx().unwrap().as_rule_context().unwrap()};
 		let result: Result<(), ANTLRError> = (|| {
-			recog.base.set_state(286);
+			recog.base.set_state(280);
 			recog.err_handler.sync(&mut recog.base)?;
-			match recog.get_interpreter().adaptive_predict(21,&mut recog.base)? {
+			match recog.get_interpreter().adaptive_predict(19,&mut recog.base)? {
 				1 =>{
 					/*------- Outer Most Alt 1 -------*/
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(1); }
 					{
 					/*InvokeRule expr*/
-					recog.base.set_state(280);
+					recog.base.set_state(274);
 					recog.expr()?;
-					recog.base.set_state(281);
+					recog.base.set_state(275);
 					recog.base.match_token(CFood_COMMA,&mut recog.err_handler)?;
 					/*InvokeRule args*/
-					recog.base.set_state(282);
+					recog.base.set_state(276);
 					recog.args()?;
 					}
 				}
@@ -6913,7 +7082,7 @@ where
 					unsafe { recog.ctx_mut().unwrap().set_alt_number(2); }
 					{
 					/*InvokeRule expr*/
-					recog.base.set_state(284);
+					recog.base.set_state(278);
 					recog.expr()?;
 					}
 				}
@@ -6946,130 +7115,127 @@ static ATN_SIMULATOR_MANAGER: LazyLock<ATNSimulatorManager> = LazyLock::new(|| A
 static _ATN: LazyLock<ATN> =
     LazyLock::new(|| ATNDeserializer::new(None).deserialize(&mut _serializedATN.iter()));
 static _serializedATN: LazyLock<Vec<i32>> = LazyLock::new(|| vec![
-    4, 1, 39, 289, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 
+    4, 1, 40, 283, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 
     7, 4, 2, 5, 7, 5, 2, 6, 7, 6, 2, 7, 7, 7, 2, 8, 7, 8, 2, 9, 7, 9, 2, 
     10, 7, 10, 2, 11, 7, 11, 2, 12, 7, 12, 2, 13, 7, 13, 2, 14, 7, 14, 2, 
     15, 7, 15, 2, 16, 7, 16, 2, 17, 7, 17, 2, 18, 7, 18, 2, 19, 7, 19, 2, 
     20, 7, 20, 2, 21, 7, 21, 2, 22, 7, 22, 2, 23, 7, 23, 2, 24, 7, 24, 2, 
     25, 7, 25, 2, 26, 7, 26, 2, 27, 7, 27, 2, 28, 7, 28, 2, 29, 7, 29, 2, 
     30, 7, 30, 2, 31, 7, 31, 2, 32, 7, 32, 2, 33, 7, 33, 2, 34, 7, 34, 2, 
-    35, 7, 35, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 3, 1, 79, 8, 1, 1, 2, 
-    1, 2, 1, 2, 3, 2, 84, 8, 2, 1, 3, 1, 3, 1, 3, 1, 3, 1, 4, 1, 4, 1, 4, 
-    1, 4, 1, 4, 1, 4, 1, 4, 1, 4, 1, 4, 3, 4, 99, 8, 4, 1, 5, 1, 5, 1, 5, 
-    3, 5, 104, 8, 5, 1, 6, 1, 6, 1, 6, 1, 6, 1, 6, 1, 7, 1, 7, 1, 7, 1, 
-    7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 8, 1, 8, 1, 8, 1, 8, 1, 8, 1, 8, 1, 8, 
-    1, 8, 1, 8, 3, 8, 128, 8, 8, 1, 9, 1, 9, 1, 9, 1, 9, 1, 9, 3, 9, 135, 
-    8, 9, 1, 10, 1, 10, 1, 11, 1, 11, 1, 11, 3, 11, 142, 8, 11, 1, 12, 1, 
-    12, 1, 12, 1, 12, 1, 12, 3, 12, 149, 8, 12, 1, 13, 1, 13, 1, 13, 1, 
-    13, 1, 13, 3, 13, 156, 8, 13, 1, 14, 1, 14, 1, 14, 1, 14, 3, 14, 162, 
-    8, 14, 1, 15, 1, 15, 1, 15, 1, 15, 1, 16, 1, 16, 1, 16, 1, 16, 3, 16, 
-    172, 8, 16, 1, 17, 1, 17, 1, 17, 1, 17, 1, 17, 1, 17, 1, 17, 1, 17, 
-    3, 17, 182, 8, 17, 1, 18, 1, 18, 1, 18, 1, 19, 1, 19, 1, 19, 1, 19, 
-    1, 19, 1, 19, 1, 19, 1, 19, 1, 19, 1, 19, 1, 19, 1, 19, 1, 19, 1, 19, 
-    3, 19, 201, 8, 19, 1, 20, 1, 20, 1, 20, 1, 20, 1, 20, 1, 20, 1, 21, 
-    1, 21, 1, 21, 1, 21, 1, 21, 1, 21, 3, 21, 215, 8, 21, 1, 22, 1, 22, 
-    1, 22, 1, 22, 1, 22, 1, 22, 1, 23, 1, 23, 3, 23, 225, 8, 23, 1, 24, 
-    1, 24, 1, 24, 1, 24, 1, 25, 1, 25, 1, 25, 1, 25, 1, 25, 1, 25, 3, 25, 
-    237, 8, 25, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 3, 26, 244, 8, 26, 1, 
-    27, 1, 27, 1, 27, 1, 27, 3, 27, 250, 8, 27, 1, 28, 1, 28, 1, 28, 1, 
-    28, 1, 28, 3, 28, 257, 8, 28, 1, 29, 1, 29, 1, 29, 1, 29, 1, 29, 3, 
-    29, 264, 8, 29, 1, 30, 1, 30, 1, 30, 3, 30, 269, 8, 30, 1, 31, 1, 31, 
-    1, 32, 1, 32, 1, 33, 1, 33, 1, 34, 1, 34, 1, 34, 1, 34, 1, 35, 1, 35, 
-    1, 35, 1, 35, 1, 35, 1, 35, 3, 35, 287, 8, 35, 1, 35, 0, 0, 36, 0, 2, 
-    4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 
-    40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 64, 66, 68, 70, 0, 3, 
-    1, 0, 17, 22, 1, 0, 23, 24, 1, 0, 25, 28, 287, 0, 72, 1, 0, 0, 0, 2, 
-    78, 1, 0, 0, 0, 4, 83, 1, 0, 0, 0, 6, 85, 1, 0, 0, 0, 8, 98, 1, 0, 0, 
-    0, 10, 103, 1, 0, 0, 0, 12, 105, 1, 0, 0, 0, 14, 110, 1, 0, 0, 0, 16, 
-    127, 1, 0, 0, 0, 18, 134, 1, 0, 0, 0, 20, 136, 1, 0, 0, 0, 22, 141, 
-    1, 0, 0, 0, 24, 148, 1, 0, 0, 0, 26, 155, 1, 0, 0, 0, 28, 161, 1, 0, 
-    0, 0, 30, 163, 1, 0, 0, 0, 32, 171, 1, 0, 0, 0, 34, 181, 1, 0, 0, 0, 
-    36, 183, 1, 0, 0, 0, 38, 200, 1, 0, 0, 0, 40, 202, 1, 0, 0, 0, 42, 214, 
-    1, 0, 0, 0, 44, 216, 1, 0, 0, 0, 46, 224, 1, 0, 0, 0, 48, 226, 1, 0, 
-    0, 0, 50, 236, 1, 0, 0, 0, 52, 243, 1, 0, 0, 0, 54, 249, 1, 0, 0, 0, 
-    56, 256, 1, 0, 0, 0, 58, 263, 1, 0, 0, 0, 60, 268, 1, 0, 0, 0, 62, 270, 
-    1, 0, 0, 0, 64, 272, 1, 0, 0, 0, 66, 274, 1, 0, 0, 0, 68, 276, 1, 0, 
-    0, 0, 70, 286, 1, 0, 0, 0, 72, 73, 3, 2, 1, 0, 73, 1, 1, 0, 0, 0, 74, 
-    75, 3, 4, 2, 0, 75, 76, 3, 2, 1, 0, 76, 79, 1, 0, 0, 0, 77, 79, 1, 0, 
-    0, 0, 78, 74, 1, 0, 0, 0, 78, 77, 1, 0, 0, 0, 79, 3, 1, 0, 0, 0, 80, 
-    84, 3, 6, 3, 0, 81, 84, 3, 14, 7, 0, 82, 84, 3, 12, 6, 0, 83, 80, 1, 
-    0, 0, 0, 83, 81, 1, 0, 0, 0, 83, 82, 1, 0, 0, 0, 84, 5, 1, 0, 0, 0, 
-    85, 86, 3, 8, 4, 0, 86, 87, 3, 10, 5, 0, 87, 88, 5, 31, 0, 0, 88, 7, 
-    1, 0, 0, 0, 89, 90, 3, 26, 13, 0, 90, 91, 5, 33, 0, 0, 91, 99, 1, 0, 
-    0, 0, 92, 93, 3, 26, 13, 0, 93, 94, 5, 33, 0, 0, 94, 95, 5, 15, 0, 0, 
-    95, 96, 3, 22, 11, 0, 96, 97, 5, 16, 0, 0, 97, 99, 1, 0, 0, 0, 98, 89, 
-    1, 0, 0, 0, 98, 92, 1, 0, 0, 0, 99, 9, 1, 0, 0, 0, 100, 101, 5, 29, 
-    0, 0, 101, 104, 3, 46, 23, 0, 102, 104, 1, 0, 0, 0, 103, 100, 1, 0, 
-    0, 0, 103, 102, 1, 0, 0, 0, 104, 11, 1, 0, 0, 0, 105, 106, 3, 26, 13, 
-    0, 106, 107, 5, 33, 0, 0, 107, 108, 3, 16, 8, 0, 108, 109, 3, 30, 15, 
-    0, 109, 13, 1, 0, 0, 0, 110, 111, 5, 5, 0, 0, 111, 112, 5, 32, 0, 0, 
-    112, 113, 5, 29, 0, 0, 113, 114, 5, 11, 0, 0, 114, 115, 3, 24, 12, 0, 
-    115, 116, 5, 12, 0, 0, 116, 117, 5, 31, 0, 0, 117, 15, 1, 0, 0, 0, 118, 
-    119, 5, 11, 0, 0, 119, 120, 3, 18, 9, 0, 120, 121, 5, 12, 0, 0, 121, 
-    128, 1, 0, 0, 0, 122, 123, 5, 11, 0, 0, 123, 124, 5, 9, 0, 0, 124, 128, 
-    5, 12, 0, 0, 125, 126, 5, 11, 0, 0, 126, 128, 5, 12, 0, 0, 127, 118, 
-    1, 0, 0, 0, 127, 122, 1, 0, 0, 0, 127, 125, 1, 0, 0, 0, 128, 17, 1, 
-    0, 0, 0, 129, 130, 3, 20, 10, 0, 130, 131, 5, 30, 0, 0, 131, 132, 3, 
-    18, 9, 0, 132, 135, 1, 0, 0, 0, 133, 135, 3, 20, 10, 0, 134, 129, 1, 
-    0, 0, 0, 134, 133, 1, 0, 0, 0, 135, 19, 1, 0, 0, 0, 136, 137, 3, 8, 
-    4, 0, 137, 21, 1, 0, 0, 0, 138, 142, 5, 34, 0, 0, 139, 142, 5, 35, 0, 
-    0, 140, 142, 5, 36, 0, 0, 141, 138, 1, 0, 0, 0, 141, 139, 1, 0, 0, 0, 
-    141, 140, 1, 0, 0, 0, 142, 23, 1, 0, 0, 0, 143, 144, 3, 28, 14, 0, 144, 
-    145, 5, 30, 0, 0, 145, 146, 3, 24, 12, 0, 146, 149, 1, 0, 0, 0, 147, 
-    149, 3, 28, 14, 0, 148, 143, 1, 0, 0, 0, 148, 147, 1, 0, 0, 0, 149, 
-    25, 1, 0, 0, 0, 150, 156, 3, 28, 14, 0, 151, 152, 3, 28, 14, 0, 152, 
-    153, 5, 10, 0, 0, 153, 154, 3, 26, 13, 0, 154, 156, 1, 0, 0, 0, 155, 
-    150, 1, 0, 0, 0, 155, 151, 1, 0, 0, 0, 156, 27, 1, 0, 0, 0, 157, 162, 
-    5, 7, 0, 0, 158, 162, 5, 8, 0, 0, 159, 162, 5, 9, 0, 0, 160, 162, 5, 
-    32, 0, 0, 161, 157, 1, 0, 0, 0, 161, 158, 1, 0, 0, 0, 161, 159, 1, 0, 
-    0, 0, 161, 160, 1, 0, 0, 0, 162, 29, 1, 0, 0, 0, 163, 164, 5, 13, 0, 
-    0, 164, 165, 3, 32, 16, 0, 165, 166, 5, 14, 0, 0, 166, 31, 1, 0, 0, 
-    0, 167, 168, 3, 34, 17, 0, 168, 169, 3, 32, 16, 0, 169, 172, 1, 0, 0, 
-    0, 170, 172, 1, 0, 0, 0, 171, 167, 1, 0, 0, 0, 171, 170, 1, 0, 0, 0, 
-    172, 33, 1, 0, 0, 0, 173, 182, 3, 6, 3, 0, 174, 182, 3, 44, 22, 0, 175, 
-    182, 3, 36, 18, 0, 176, 182, 3, 38, 19, 0, 177, 182, 3, 40, 20, 0, 178, 
-    182, 3, 42, 21, 0, 179, 182, 3, 30, 15, 0, 180, 182, 5, 31, 0, 0, 181, 
-    173, 1, 0, 0, 0, 181, 174, 1, 0, 0, 0, 181, 175, 1, 0, 0, 0, 181, 176, 
-    1, 0, 0, 0, 181, 177, 1, 0, 0, 0, 181, 178, 1, 0, 0, 0, 181, 179, 1, 
-    0, 0, 0, 181, 180, 1, 0, 0, 0, 182, 35, 1, 0, 0, 0, 183, 184, 3, 46, 
-    23, 0, 184, 185, 5, 31, 0, 0, 185, 37, 1, 0, 0, 0, 186, 187, 5, 2, 0, 
-    0, 187, 188, 5, 11, 0, 0, 188, 189, 3, 46, 23, 0, 189, 190, 5, 12, 0, 
-    0, 190, 191, 3, 34, 17, 0, 191, 201, 1, 0, 0, 0, 192, 193, 5, 2, 0, 
-    0, 193, 194, 5, 11, 0, 0, 194, 195, 3, 46, 23, 0, 195, 196, 5, 12, 0, 
-    0, 196, 197, 3, 34, 17, 0, 197, 198, 5, 3, 0, 0, 198, 199, 3, 34, 17, 
-    0, 199, 201, 1, 0, 0, 0, 200, 186, 1, 0, 0, 0, 200, 192, 1, 0, 0, 0, 
-    201, 39, 1, 0, 0, 0, 202, 203, 5, 1, 0, 0, 203, 204, 5, 11, 0, 0, 204, 
-    205, 3, 46, 23, 0, 205, 206, 5, 12, 0, 0, 206, 207, 3, 34, 17, 0, 207, 
-    41, 1, 0, 0, 0, 208, 209, 5, 4, 0, 0, 209, 215, 5, 31, 0, 0, 210, 211, 
-    5, 4, 0, 0, 211, 212, 3, 46, 23, 0, 212, 213, 5, 31, 0, 0, 213, 215, 
-    1, 0, 0, 0, 214, 208, 1, 0, 0, 0, 214, 210, 1, 0, 0, 0, 215, 43, 1, 
-    0, 0, 0, 216, 217, 5, 6, 0, 0, 217, 218, 5, 33, 0, 0, 218, 219, 5, 29, 
-    0, 0, 219, 220, 3, 46, 23, 0, 220, 221, 5, 31, 0, 0, 221, 45, 1, 0, 
-    0, 0, 222, 225, 3, 48, 24, 0, 223, 225, 3, 52, 26, 0, 224, 222, 1, 0, 
-    0, 0, 224, 223, 1, 0, 0, 0, 225, 47, 1, 0, 0, 0, 226, 227, 3, 50, 25, 
-    0, 227, 228, 5, 29, 0, 0, 228, 229, 3, 46, 23, 0, 229, 49, 1, 0, 0, 
-    0, 230, 237, 5, 33, 0, 0, 231, 232, 5, 33, 0, 0, 232, 233, 5, 15, 0, 
-    0, 233, 234, 3, 46, 23, 0, 234, 235, 5, 16, 0, 0, 235, 237, 1, 0, 0, 
-    0, 236, 230, 1, 0, 0, 0, 236, 231, 1, 0, 0, 0, 237, 51, 1, 0, 0, 0, 
-    238, 239, 3, 54, 27, 0, 239, 240, 3, 62, 31, 0, 240, 241, 3, 54, 27, 
-    0, 241, 244, 1, 0, 0, 0, 242, 244, 3, 54, 27, 0, 243, 238, 1, 0, 0, 
-    0, 243, 242, 1, 0, 0, 0, 244, 53, 1, 0, 0, 0, 245, 246, 3, 56, 28, 0, 
-    246, 247, 3, 54, 27, 0, 247, 250, 1, 0, 0, 0, 248, 250, 3, 56, 28, 0, 
-    249, 245, 1, 0, 0, 0, 249, 248, 1, 0, 0, 0, 250, 55, 1, 0, 0, 0, 251, 
-    252, 3, 58, 29, 0, 252, 253, 3, 64, 32, 0, 253, 254, 3, 56, 28, 0, 254, 
-    257, 1, 0, 0, 0, 255, 257, 3, 58, 29, 0, 256, 251, 1, 0, 0, 0, 256, 
-    255, 1, 0, 0, 0, 257, 57, 1, 0, 0, 0, 258, 259, 3, 60, 30, 0, 259, 260, 
-    3, 66, 33, 0, 260, 261, 3, 58, 29, 0, 261, 264, 1, 0, 0, 0, 262, 264, 
-    3, 60, 30, 0, 263, 258, 1, 0, 0, 0, 263, 262, 1, 0, 0, 0, 264, 59, 1, 
-    0, 0, 0, 265, 269, 3, 68, 34, 0, 266, 269, 3, 50, 25, 0, 267, 269, 3, 
-    22, 11, 0, 268, 265, 1, 0, 0, 0, 268, 266, 1, 0, 0, 0, 268, 267, 1, 
-    0, 0, 0, 269, 61, 1, 0, 0, 0, 270, 271, 7, 0, 0, 0, 271, 63, 1, 0, 0, 
-    0, 272, 273, 7, 1, 0, 0, 273, 65, 1, 0, 0, 0, 274, 275, 7, 2, 0, 0, 
-    275, 67, 1, 0, 0, 0, 276, 277, 5, 11, 0, 0, 277, 278, 3, 70, 35, 0, 
-    278, 279, 5, 12, 0, 0, 279, 69, 1, 0, 0, 0, 280, 281, 3, 46, 23, 0, 
-    281, 282, 5, 30, 0, 0, 282, 283, 3, 70, 35, 0, 283, 287, 1, 0, 0, 0, 
-    284, 287, 3, 46, 23, 0, 285, 287, 1, 0, 0, 0, 286, 280, 1, 0, 0, 0, 
-    286, 284, 1, 0, 0, 0, 286, 285, 1, 0, 0, 0, 287, 71, 1, 0, 0, 0, 22, 
-    78, 83, 98, 103, 127, 134, 141, 148, 155, 161, 171, 181, 200, 214, 224, 
-    236, 243, 249, 256, 263, 268, 286
+    35, 7, 35, 2, 36, 7, 36, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 3, 1, 81, 
+    8, 1, 1, 2, 1, 2, 1, 2, 3, 2, 86, 8, 2, 1, 3, 1, 3, 1, 3, 1, 3, 1, 4, 
+    1, 4, 1, 4, 1, 5, 1, 5, 1, 5, 3, 5, 98, 8, 5, 1, 6, 1, 6, 1, 6, 1, 6, 
+    1, 6, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 8, 1, 8, 1, 
+    8, 1, 8, 1, 8, 1, 8, 1, 8, 1, 8, 1, 8, 3, 8, 122, 8, 8, 1, 9, 1, 9, 
+    1, 9, 1, 9, 1, 9, 3, 9, 129, 8, 9, 1, 10, 1, 10, 1, 11, 1, 11, 1, 11, 
+    3, 11, 136, 8, 11, 1, 12, 1, 12, 1, 12, 1, 12, 1, 12, 3, 12, 143, 8, 
+    12, 1, 13, 1, 13, 1, 13, 1, 13, 1, 13, 3, 13, 150, 8, 13, 1, 14, 1, 
+    14, 1, 14, 1, 14, 1, 14, 3, 14, 157, 8, 14, 1, 15, 1, 15, 1, 15, 1, 
+    15, 1, 16, 1, 16, 1, 16, 1, 16, 3, 16, 167, 8, 16, 1, 17, 1, 17, 1, 
+    17, 1, 17, 1, 17, 1, 17, 1, 17, 1, 17, 3, 17, 177, 8, 17, 1, 18, 1, 
+    18, 1, 18, 1, 19, 1, 19, 1, 19, 1, 19, 1, 19, 1, 19, 1, 19, 1, 19, 1, 
+    19, 1, 19, 1, 19, 1, 19, 1, 19, 1, 19, 3, 19, 196, 8, 19, 1, 20, 1, 
+    20, 1, 20, 1, 20, 1, 20, 1, 20, 1, 21, 1, 21, 1, 21, 1, 21, 1, 21, 1, 
+    21, 3, 21, 210, 8, 21, 1, 22, 1, 22, 1, 22, 1, 22, 1, 22, 1, 22, 1, 
+    23, 1, 23, 3, 23, 220, 8, 23, 1, 24, 1, 24, 1, 24, 1, 24, 1, 25, 1, 
+    25, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 3, 26, 233, 8, 26, 1, 27, 1, 
+    27, 1, 27, 1, 27, 1, 27, 1, 27, 1, 27, 3, 27, 242, 8, 27, 1, 28, 1, 
+    28, 1, 29, 1, 29, 1, 29, 1, 29, 1, 29, 3, 29, 251, 8, 29, 1, 30, 1, 
+    30, 1, 30, 1, 30, 1, 30, 3, 30, 258, 8, 30, 1, 31, 1, 31, 1, 31, 3, 
+    31, 263, 8, 31, 1, 32, 1, 32, 1, 33, 1, 33, 1, 34, 1, 34, 1, 35, 1, 
+    35, 1, 35, 1, 35, 1, 36, 1, 36, 1, 36, 1, 36, 1, 36, 1, 36, 3, 36, 281, 
+    8, 36, 1, 36, 0, 0, 37, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 
+    26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 
+    60, 62, 64, 66, 68, 70, 72, 0, 4, 1, 0, 11, 12, 1, 0, 18, 23, 1, 0, 
+    24, 25, 1, 0, 26, 29, 280, 0, 74, 1, 0, 0, 0, 2, 80, 1, 0, 0, 0, 4, 
+    85, 1, 0, 0, 0, 6, 87, 1, 0, 0, 0, 8, 91, 1, 0, 0, 0, 10, 97, 1, 0, 
+    0, 0, 12, 99, 1, 0, 0, 0, 14, 104, 1, 0, 0, 0, 16, 121, 1, 0, 0, 0, 
+    18, 128, 1, 0, 0, 0, 20, 130, 1, 0, 0, 0, 22, 135, 1, 0, 0, 0, 24, 142, 
+    1, 0, 0, 0, 26, 149, 1, 0, 0, 0, 28, 156, 1, 0, 0, 0, 30, 158, 1, 0, 
+    0, 0, 32, 166, 1, 0, 0, 0, 34, 176, 1, 0, 0, 0, 36, 178, 1, 0, 0, 0, 
+    38, 195, 1, 0, 0, 0, 40, 197, 1, 0, 0, 0, 42, 209, 1, 0, 0, 0, 44, 211, 
+    1, 0, 0, 0, 46, 219, 1, 0, 0, 0, 48, 221, 1, 0, 0, 0, 50, 225, 1, 0, 
+    0, 0, 52, 232, 1, 0, 0, 0, 54, 241, 1, 0, 0, 0, 56, 243, 1, 0, 0, 0, 
+    58, 250, 1, 0, 0, 0, 60, 257, 1, 0, 0, 0, 62, 262, 1, 0, 0, 0, 64, 264, 
+    1, 0, 0, 0, 66, 266, 1, 0, 0, 0, 68, 268, 1, 0, 0, 0, 70, 270, 1, 0, 
+    0, 0, 72, 280, 1, 0, 0, 0, 74, 75, 3, 2, 1, 0, 75, 1, 1, 0, 0, 0, 76, 
+    77, 3, 4, 2, 0, 77, 78, 3, 2, 1, 0, 78, 81, 1, 0, 0, 0, 79, 81, 1, 0, 
+    0, 0, 80, 76, 1, 0, 0, 0, 80, 79, 1, 0, 0, 0, 81, 3, 1, 0, 0, 0, 82, 
+    86, 3, 6, 3, 0, 83, 86, 3, 14, 7, 0, 84, 86, 3, 12, 6, 0, 85, 82, 1, 
+    0, 0, 0, 85, 83, 1, 0, 0, 0, 85, 84, 1, 0, 0, 0, 86, 5, 1, 0, 0, 0, 
+    87, 88, 3, 8, 4, 0, 88, 89, 3, 10, 5, 0, 89, 90, 5, 32, 0, 0, 90, 7, 
+    1, 0, 0, 0, 91, 92, 3, 26, 13, 0, 92, 93, 5, 34, 0, 0, 93, 9, 1, 0, 
+    0, 0, 94, 95, 5, 30, 0, 0, 95, 98, 3, 46, 23, 0, 96, 98, 1, 0, 0, 0, 
+    97, 94, 1, 0, 0, 0, 97, 96, 1, 0, 0, 0, 98, 11, 1, 0, 0, 0, 99, 100, 
+    3, 26, 13, 0, 100, 101, 5, 34, 0, 0, 101, 102, 3, 16, 8, 0, 102, 103, 
+    3, 30, 15, 0, 103, 13, 1, 0, 0, 0, 104, 105, 5, 5, 0, 0, 105, 106, 5, 
+    33, 0, 0, 106, 107, 5, 30, 0, 0, 107, 108, 5, 14, 0, 0, 108, 109, 3, 
+    24, 12, 0, 109, 110, 5, 15, 0, 0, 110, 111, 5, 32, 0, 0, 111, 15, 1, 
+    0, 0, 0, 112, 113, 5, 14, 0, 0, 113, 114, 3, 18, 9, 0, 114, 115, 5, 
+    15, 0, 0, 115, 122, 1, 0, 0, 0, 116, 117, 5, 14, 0, 0, 117, 118, 5, 
+    10, 0, 0, 118, 122, 5, 15, 0, 0, 119, 120, 5, 14, 0, 0, 120, 122, 5, 
+    15, 0, 0, 121, 112, 1, 0, 0, 0, 121, 116, 1, 0, 0, 0, 121, 119, 1, 0, 
+    0, 0, 122, 17, 1, 0, 0, 0, 123, 124, 3, 20, 10, 0, 124, 125, 5, 31, 
+    0, 0, 125, 126, 3, 18, 9, 0, 126, 129, 1, 0, 0, 0, 127, 129, 3, 20, 
+    10, 0, 128, 123, 1, 0, 0, 0, 128, 127, 1, 0, 0, 0, 129, 19, 1, 0, 0, 
+    0, 130, 131, 3, 8, 4, 0, 131, 21, 1, 0, 0, 0, 132, 136, 5, 35, 0, 0, 
+    133, 136, 5, 36, 0, 0, 134, 136, 5, 37, 0, 0, 135, 132, 1, 0, 0, 0, 
+    135, 133, 1, 0, 0, 0, 135, 134, 1, 0, 0, 0, 136, 23, 1, 0, 0, 0, 137, 
+    138, 3, 28, 14, 0, 138, 139, 5, 31, 0, 0, 139, 140, 3, 24, 12, 0, 140, 
+    143, 1, 0, 0, 0, 141, 143, 3, 28, 14, 0, 142, 137, 1, 0, 0, 0, 142, 
+    141, 1, 0, 0, 0, 143, 25, 1, 0, 0, 0, 144, 150, 3, 28, 14, 0, 145, 146, 
+    3, 28, 14, 0, 146, 147, 5, 13, 0, 0, 147, 148, 3, 26, 13, 0, 148, 150, 
+    1, 0, 0, 0, 149, 144, 1, 0, 0, 0, 149, 145, 1, 0, 0, 0, 150, 27, 1, 
+    0, 0, 0, 151, 157, 5, 7, 0, 0, 152, 157, 5, 8, 0, 0, 153, 157, 5, 9, 
+    0, 0, 154, 157, 5, 10, 0, 0, 155, 157, 5, 33, 0, 0, 156, 151, 1, 0, 
+    0, 0, 156, 152, 1, 0, 0, 0, 156, 153, 1, 0, 0, 0, 156, 154, 1, 0, 0, 
+    0, 156, 155, 1, 0, 0, 0, 157, 29, 1, 0, 0, 0, 158, 159, 5, 16, 0, 0, 
+    159, 160, 3, 32, 16, 0, 160, 161, 5, 17, 0, 0, 161, 31, 1, 0, 0, 0, 
+    162, 163, 3, 34, 17, 0, 163, 164, 3, 32, 16, 0, 164, 167, 1, 0, 0, 0, 
+    165, 167, 1, 0, 0, 0, 166, 162, 1, 0, 0, 0, 166, 165, 1, 0, 0, 0, 167, 
+    33, 1, 0, 0, 0, 168, 177, 3, 6, 3, 0, 169, 177, 3, 44, 22, 0, 170, 177, 
+    3, 36, 18, 0, 171, 177, 3, 38, 19, 0, 172, 177, 3, 40, 20, 0, 173, 177, 
+    3, 42, 21, 0, 174, 177, 3, 30, 15, 0, 175, 177, 5, 32, 0, 0, 176, 168, 
+    1, 0, 0, 0, 176, 169, 1, 0, 0, 0, 176, 170, 1, 0, 0, 0, 176, 171, 1, 
+    0, 0, 0, 176, 172, 1, 0, 0, 0, 176, 173, 1, 0, 0, 0, 176, 174, 1, 0, 
+    0, 0, 176, 175, 1, 0, 0, 0, 177, 35, 1, 0, 0, 0, 178, 179, 3, 46, 23, 
+    0, 179, 180, 5, 32, 0, 0, 180, 37, 1, 0, 0, 0, 181, 182, 5, 2, 0, 0, 
+    182, 183, 5, 14, 0, 0, 183, 184, 3, 46, 23, 0, 184, 185, 5, 15, 0, 0, 
+    185, 186, 3, 34, 17, 0, 186, 196, 1, 0, 0, 0, 187, 188, 5, 2, 0, 0, 
+    188, 189, 5, 14, 0, 0, 189, 190, 3, 46, 23, 0, 190, 191, 5, 15, 0, 0, 
+    191, 192, 3, 34, 17, 0, 192, 193, 5, 3, 0, 0, 193, 194, 3, 34, 17, 0, 
+    194, 196, 1, 0, 0, 0, 195, 181, 1, 0, 0, 0, 195, 187, 1, 0, 0, 0, 196, 
+    39, 1, 0, 0, 0, 197, 198, 5, 1, 0, 0, 198, 199, 5, 14, 0, 0, 199, 200, 
+    3, 46, 23, 0, 200, 201, 5, 15, 0, 0, 201, 202, 3, 34, 17, 0, 202, 41, 
+    1, 0, 0, 0, 203, 204, 5, 4, 0, 0, 204, 210, 5, 32, 0, 0, 205, 206, 5, 
+    4, 0, 0, 206, 207, 3, 46, 23, 0, 207, 208, 5, 32, 0, 0, 208, 210, 1, 
+    0, 0, 0, 209, 203, 1, 0, 0, 0, 209, 205, 1, 0, 0, 0, 210, 43, 1, 0, 
+    0, 0, 211, 212, 5, 6, 0, 0, 212, 213, 5, 34, 0, 0, 213, 214, 5, 30, 
+    0, 0, 214, 215, 3, 46, 23, 0, 215, 216, 5, 32, 0, 0, 216, 45, 1, 0, 
+    0, 0, 217, 220, 3, 48, 24, 0, 218, 220, 3, 52, 26, 0, 219, 217, 1, 0, 
+    0, 0, 219, 218, 1, 0, 0, 0, 220, 47, 1, 0, 0, 0, 221, 222, 3, 50, 25, 
+    0, 222, 223, 5, 30, 0, 0, 223, 224, 3, 46, 23, 0, 224, 49, 1, 0, 0, 
+    0, 225, 226, 5, 34, 0, 0, 226, 51, 1, 0, 0, 0, 227, 228, 3, 54, 27, 
+    0, 228, 229, 3, 64, 32, 0, 229, 230, 3, 54, 27, 0, 230, 233, 1, 0, 0, 
+    0, 231, 233, 3, 54, 27, 0, 232, 227, 1, 0, 0, 0, 232, 231, 1, 0, 0, 
+    0, 233, 53, 1, 0, 0, 0, 234, 235, 3, 58, 29, 0, 235, 236, 3, 54, 27, 
+    0, 236, 242, 1, 0, 0, 0, 237, 238, 3, 56, 28, 0, 238, 239, 3, 54, 27, 
+    0, 239, 242, 1, 0, 0, 0, 240, 242, 3, 58, 29, 0, 241, 234, 1, 0, 0, 
+    0, 241, 237, 1, 0, 0, 0, 241, 240, 1, 0, 0, 0, 242, 55, 1, 0, 0, 0, 
+    243, 244, 7, 0, 0, 0, 244, 57, 1, 0, 0, 0, 245, 246, 3, 60, 30, 0, 246, 
+    247, 3, 66, 33, 0, 247, 248, 3, 58, 29, 0, 248, 251, 1, 0, 0, 0, 249, 
+    251, 3, 60, 30, 0, 250, 245, 1, 0, 0, 0, 250, 249, 1, 0, 0, 0, 251, 
+    59, 1, 0, 0, 0, 252, 253, 3, 62, 31, 0, 253, 254, 3, 68, 34, 0, 254, 
+    255, 3, 60, 30, 0, 255, 258, 1, 0, 0, 0, 256, 258, 3, 62, 31, 0, 257, 
+    252, 1, 0, 0, 0, 257, 256, 1, 0, 0, 0, 258, 61, 1, 0, 0, 0, 259, 263, 
+    3, 70, 35, 0, 260, 263, 3, 50, 25, 0, 261, 263, 3, 22, 11, 0, 262, 259, 
+    1, 0, 0, 0, 262, 260, 1, 0, 0, 0, 262, 261, 1, 0, 0, 0, 263, 63, 1, 
+    0, 0, 0, 264, 265, 7, 1, 0, 0, 265, 65, 1, 0, 0, 0, 266, 267, 7, 2, 
+    0, 0, 267, 67, 1, 0, 0, 0, 268, 269, 7, 3, 0, 0, 269, 69, 1, 0, 0, 0, 
+    270, 271, 5, 14, 0, 0, 271, 272, 3, 72, 36, 0, 272, 273, 5, 15, 0, 0, 
+    273, 71, 1, 0, 0, 0, 274, 275, 3, 46, 23, 0, 275, 276, 5, 31, 0, 0, 
+    276, 277, 3, 72, 36, 0, 277, 281, 1, 0, 0, 0, 278, 281, 3, 46, 23, 0, 
+    279, 281, 1, 0, 0, 0, 280, 274, 1, 0, 0, 0, 280, 278, 1, 0, 0, 0, 280, 
+    279, 1, 0, 0, 0, 281, 73, 1, 0, 0, 0, 20, 80, 85, 97, 121, 128, 135, 
+    142, 149, 156, 166, 176, 195, 209, 219, 232, 241, 250, 257, 262, 280
 ]);

@@ -1,5 +1,6 @@
 use cfood::{
     antlr::{cfoodparser::CFoodTreeWalker, cfoodvisitor::CFoodVisitor, *},
+    checker::TLT,
     cst::{CstToSexpr, parse_to_cst, visitor::Visitor},
     print::SexprAst,
 };
@@ -38,7 +39,10 @@ fn main() -> Result<()> {
         let ast = parser.file()?;
 
         let (file, span_store) = parse_to_cst(ast.as_node())?;
-        let mut cst_to_sexpr = CstToSexpr::new(&span_store);
+        let mut tlt = TLT::default();
+        tlt.check_file(&file).unwrap();
+
+        let mut cst_to_sexpr = CstToSexpr::new(&span_store, vec![&tlt]);
         let s = cst_to_sexpr.visit_file(&file)?;
 
         // let sexpr = Box::new(SexprAst::new(

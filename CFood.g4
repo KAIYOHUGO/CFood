@@ -15,7 +15,12 @@ KW_let: 'let';
 
 TY_int: 'int';
 TY_float: 'float';
+TY_str: 'str';
 TY_void: 'void';
+
+
+MAGIC_printf: 'printf';
+MAGIC_scanf: 'scanf';
 
 ARROW: '->';
 PAREN_L: '(';
@@ -23,9 +28,6 @@ PAREN_R: ')';
 
 BRACE_L: '{';
 BRACE_R: '}';
-
-BRACKET_L: '[';
-BRACKET_R: ']';
 
 NE: '!=';
 EQ: '==';
@@ -65,8 +67,7 @@ var_decl
     : var_decl_ty var_decl_init SEMICOLON;
     
 var_decl_ty
-    : ty IDENT
-    | ty IDENT BRACKET_L lit BRACKET_R;
+    : ty IDENT;
 
 var_decl_init
     : ASSIGN expr
@@ -106,6 +107,7 @@ ty
 ty_kind
     : TY_int   # ty_kind_ty
     | TY_float # ty_kind_ty
+    | TY_str   # ty_kind_ty
     | TY_void  # ty_kind_ty
     | TYPE     # ty_kind_type
     ;
@@ -148,8 +150,7 @@ assign_expr
     : var ASSIGN expr;
 
 var
-    : IDENT
-    | IDENT BRACKET_L expr BRACKET_R;
+    : IDENT;
 
 calc_expr
     : lhs=call_preced_expr cmp_preced_op rhs=call_preced_expr # calc_expr_use
@@ -158,7 +159,13 @@ calc_expr
 
 call_preced_expr
     : add_preced_expr call_preced_expr # call_preced_expr_use
+    | magic           call_preced_expr # call_preced_expr_magic
     | add_preced_expr                  # call_preced_expr_pass
+    ;
+
+magic
+    : MAGIC_printf
+    | MAGIC_scanf
     ;
 
 add_preced_expr

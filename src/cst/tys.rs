@@ -35,7 +35,6 @@ pub struct DeclVar {
 pub enum Ty {
     Kind(Kind),
     Arrow(TyArrow),
-    Array(TyArray),
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -45,19 +44,13 @@ pub struct TyArrow {
     pub output: Box<Ty>,
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub struct TyArray {
-    pub id: usize,
-    pub size: Token<usize>,
-    pub kind: Kind,
-}
-
 #[derive(Debug, Clone, PartialEq, PartialOrd, Is)]
 pub enum Kind {
     Int(Id),
     Float(Id),
     Void(Id),
     Bool(Id),
+    ConStr(Id),
     Alias(Alias),
 }
 
@@ -72,6 +65,7 @@ pub enum Expr {
     Binary(ExprBinary),
     Assign(ExprAssign),
     Call(ExprCall),
+    Magic(ExprMagic),
     Lit(Lit),
     Var(ExprVar),
 }
@@ -110,6 +104,19 @@ pub struct ExprCall {
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct ExprMagic {
+    pub id: usize,
+    pub lhs: Magic,
+    pub rhs: Box<Expr>,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Is)]
+pub enum Magic {
+    Printf(Id),
+    Scanf(Id),
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct ExprAssign {
     pub id: usize,
     pub var: Box<ExprVar>,
@@ -120,7 +127,6 @@ pub struct ExprAssign {
 pub struct ExprVar {
     pub id: usize,
     pub name: Token<String>,
-    pub index: Option<Box<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Is, FromVariant)]

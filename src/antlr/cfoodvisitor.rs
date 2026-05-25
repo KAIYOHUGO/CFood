@@ -151,10 +151,19 @@ where
     /// @param ctx the parse tree
     fn visit_call_preced_expr_use(&mut self, ctx: &'arena Call_preced_expr_useContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
 
+    /// Visit a parse tree produced by the {@code call_preced_expr_magic}
+    /// labeled alternative in {@link CFoodParser#call_preced_expr}.
+    /// @param ctx the parse tree
+    fn visit_call_preced_expr_magic(&mut self, ctx: &'arena Call_preced_expr_magicContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
+
     /// Visit a parse tree produced by the {@code call_preced_expr_pass}
     /// labeled alternative in {@link CFoodParser#call_preced_expr}.
     /// @param ctx the parse tree
     fn visit_call_preced_expr_pass(&mut self, ctx: &'arena Call_preced_expr_passContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
+
+    /// Visit a parse tree produced by {@link CFoodParser#magic}.
+    /// @param ctx the parse tree
+    fn visit_magic(&mut self, ctx: &'arena MagicContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
 
     /// Visit a parse tree produced by the {@code add_preced_expr_use}
     /// labeled alternative in {@link CFoodParser#add_preced_expr}.

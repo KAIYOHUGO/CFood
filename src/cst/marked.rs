@@ -38,8 +38,8 @@ macro_rules! impl_marked_for_id {
 }
 
 impl_marked_for_id![
-    File, DeclVar, DeclAlias, DeclFunc, TyArrow, TyArray, Alias, ExprBinary, ExprCall, ExprAssign,
-    ExprVar, Param, StmtBranch, StmtBlock, StmtIter, StmtLet, StmtRet
+    File, DeclVar, DeclAlias, DeclFunc, TyArrow, Alias, ExprBinary, ExprCall, ExprMagic,
+    ExprAssign, ExprVar, Param, StmtBranch, StmtBlock, StmtIter, StmtLet, StmtRet
 ];
 
 impl Marked for Ty {
@@ -47,7 +47,6 @@ impl Marked for Ty {
         match self {
             Ty::Kind(s) => s.mark(),
             Ty::Arrow(s) => s.mark(),
-            Ty::Array(s) => s.mark(),
         }
     }
 }
@@ -60,6 +59,7 @@ impl Marked for Kind {
             Kind::Void(s) => s.mark(),
             Kind::Bool(s) => s.mark(),
             Kind::Alias(s) => s.mark(),
+            Kind::ConStr(s) => s.mark(),
         }
     }
 }
@@ -109,6 +109,7 @@ impl Marked for Expr {
             Expr::Binary(s) => s.mark(),
             Expr::Assign(s) => s.mark(),
             Expr::Call(s) => s.mark(),
+            Expr::Magic(s) => s.mark(),
             Expr::Lit(s) => s.mark(),
             Expr::Var(s) => s.mark(),
         }

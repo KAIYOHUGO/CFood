@@ -151,7 +151,7 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
 
     fn visit_decl(
         &mut self,
-        ctx: &'arena DeclContext<'input, 'arena, dbt_antlr4::token::TokenImpl<'input, &'input str>>,
+        ctx: &'arena DeclContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         let all = self.visit_children(ctx)?.pop().must_some()?;
         let decl = match all {
@@ -200,45 +200,6 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
         let name = Token {
             id: self.get_id_with_symbol(ident.symbol),
             inner: ident.symbol.text.to_owned(),
-        };
-
-        let lit = ctx
-            .lit()
-            .map(|x| self.visit_node(x.as_node()))
-            .transpose()?
-            .map(|mut x| x.pop().must_some())
-            .transpose()?
-            .map(|x| x.expect_lit());
-
-        let ty = match lit {
-            Some(lit) => {
-                let Ty::Kind(kind) = ty else {
-                    // TODO: add diag
-                    // self.errors.push(diagnostic!(
-                    //     severity = Severity::Error,
-
-                    // ));
-                    bail_cst!()
-                };
-                let Lit::Int(num) = lit else {
-                    // TODO: add diag
-                    bail_cst!()
-                };
-                if num.inner.is_negative() {
-                    // TODO: add diag
-                    bail_cst!()
-                };
-                TyArray {
-                    id: self.get_id(),
-                    size: Token {
-                        id: num.id,
-                        inner: num.inner as usize,
-                    },
-                    kind,
-                }
-                .into()
-            }
-            None => ty,
         };
 
         Ok(vec![
@@ -343,16 +304,13 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
 
     fn visit_ty_kind_ty(
         &mut self,
-        ctx: &'arena Ty_kind_tyContext<
-            'input,
-            'arena,
-            dbt_antlr4::token::TokenImpl<'input, &'input str>,
-        >,
+        ctx: &'arena Ty_kind_tyContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         let id = Id(self.get_id_with_symbol(ctx.start()));
         let kind = match ctx.start().get_token_type() {
             cfoodlexer::TY_int => Kind::Int(id),
             cfoodlexer::TY_float => Kind::Float(id),
+            cfoodlexer::TY_str => Kind::ConStr(id),
             cfoodlexer::TY_void => Kind::Void(id),
 
             _ => bail_cst!(),
@@ -363,11 +321,7 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
 
     fn visit_ty_kind_type(
         &mut self,
-        ctx: &'arena Ty_kind_typeContext<
-            'input,
-            'arena,
-            dbt_antlr4::token::TokenImpl<'input, &'input str>,
-        >,
+        ctx: &'arena Ty_kind_typeContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         let name = ctx.TYPE().must_some()?.symbol;
         let name = Token {
@@ -385,7 +339,7 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
 
     fn visit_stmt(
         &mut self,
-        ctx: &'arena StmtContext<'input, 'arena, dbt_antlr4::token::TokenImpl<'input, &'input str>>,
+        ctx: &'arena StmtContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         let all = self
             .visit_children(ctx)?
@@ -523,11 +477,7 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
 
     fn visit_expr_stmt(
         &mut self,
-        ctx: &'arena Expr_stmtContext<
-            'input,
-            'arena,
-            dbt_antlr4::token::TokenImpl<'input, &'input str>,
-        >,
+        ctx: &'arena Expr_stmtContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         let expr = self.visit_children(ctx)?.pop().must_some()?.expect_expr();
 
@@ -573,19 +523,10 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
             id: self.get_id_with_symbol(name.symbol),
             inner: name.get_text(),
         };
-        let index = ctx
-            .expr()
-            .map(|x| self.visit_expr(x))
-            .transpose()?
-            .map(|mut x| x.pop())
-            .flatten()
-            .map(|x| Box::new(x.expect_expr()));
-
         Ok(vec![
             ExprVar {
                 id: self.get_id_with_ctx(ctx),
                 name,
-                index,
             }
             .into(),
         ])
@@ -593,11 +534,7 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
 
     fn visit_calc_expr_use(
         &mut self,
-        ctx: &'arena Calc_expr_useContext<
-            'input,
-            'arena,
-            dbt_antlr4::token::TokenImpl<'input, &'input str>,
-        >,
+        ctx: &'arena Calc_expr_useContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         let lhs = Box::new(
             self.visit_node(ctx.lhs.must_some()?.as_node())?
@@ -629,22 +566,14 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
 
     fn visit_calc_expr_pass(
         &mut self,
-        ctx: &'arena Calc_expr_passContext<
-            'input,
-            'arena,
-            dbt_antlr4::token::TokenImpl<'input, &'input str>,
-        >,
+        ctx: &'arena Calc_expr_passContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         self.visit_node(ctx.call_preced_expr().must_some()?.as_node())
     }
 
     fn visit_call_preced_expr_use(
         &mut self,
-        ctx: &'arena Call_preced_expr_useContext<
-            'input,
-            'arena,
-            dbt_antlr4::token::TokenImpl<'input, &'input str>,
-        >,
+        ctx: &'arena Call_preced_expr_useContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         let lhs = Box::new(
             self.visit_node(ctx.add_preced_expr().must_some()?.as_node())?
@@ -668,24 +597,43 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
         Ok(vec![expr.into()])
     }
 
+    fn visit_call_preced_expr_magic(
+        &mut self,
+        ctx: &'arena Call_preced_expr_magicContext<'input, 'arena, CommonToken<'input>>,
+    ) -> Result<Self::Return, ANTLRError> {
+        let magic = ctx.magic().must_some()?.start();
+        let lhs_id = Id(self.get_id_with_symbol(magic));
+        let lhs = match magic.get_token_type() {
+            cfoodlexer::MAGIC_printf => Magic::Printf(lhs_id),
+            cfoodlexer::MAGIC_scanf => Magic::Scanf(lhs_id),
+            _ => bail_cst!(),
+        };
+        let rhs = Box::new(
+            self.visit_node(ctx.call_preced_expr().must_some()?.as_node())?
+                .pop()
+                .must_some()?
+                .expect_expr(),
+        );
+
+        let expr: Expr = ExprMagic {
+            id: self.get_id_with_ctx(ctx),
+            lhs,
+            rhs,
+        }
+        .into();
+        Ok(vec![expr.into()])
+    }
+
     fn visit_call_preced_expr_pass(
         &mut self,
-        ctx: &'arena Call_preced_expr_passContext<
-            'input,
-            'arena,
-            dbt_antlr4::token::TokenImpl<'input, &'input str>,
-        >,
+        ctx: &'arena Call_preced_expr_passContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         self.visit_node(ctx.add_preced_expr().must_some()?.as_node())
     }
 
     fn visit_add_preced_expr_use(
         &mut self,
-        ctx: &'arena Add_preced_expr_useContext<
-            'input,
-            'arena,
-            dbt_antlr4::token::TokenImpl<'input, &'input str>,
-        >,
+        ctx: &'arena Add_preced_expr_useContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         let lhs = Box::new(
             self.visit_node(ctx.mul_preced_expr().must_some()?.as_node())?
@@ -717,22 +665,14 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
 
     fn visit_add_preced_expr_pass(
         &mut self,
-        ctx: &'arena Add_preced_expr_passContext<
-            'input,
-            'arena,
-            dbt_antlr4::token::TokenImpl<'input, &'input str>,
-        >,
+        ctx: &'arena Add_preced_expr_passContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         self.visit_node(ctx.mul_preced_expr().must_some()?.as_node())
     }
 
     fn visit_mul_preced_expr_use(
         &mut self,
-        ctx: &'arena Mul_preced_expr_useContext<
-            'input,
-            'arena,
-            dbt_antlr4::token::TokenImpl<'input, &'input str>,
-        >,
+        ctx: &'arena Mul_preced_expr_useContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         let lhs = Box::new(
             self.visit_node(ctx.atom_preced_expr().must_some()?.as_node())?
@@ -764,22 +704,14 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
 
     fn visit_mul_preced_expr_pass(
         &mut self,
-        ctx: &'arena Mul_preced_expr_passContext<
-            'input,
-            'arena,
-            dbt_antlr4::token::TokenImpl<'input, &'input str>,
-        >,
+        ctx: &'arena Mul_preced_expr_passContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         self.visit_node(ctx.atom_preced_expr().must_some()?.as_node())
     }
 
     fn visit_atom_preced_expr_var(
         &mut self,
-        ctx: &'arena Atom_preced_expr_varContext<
-            'input,
-            'arena,
-            dbt_antlr4::token::TokenImpl<'input, &'input str>,
-        >,
+        ctx: &'arena Atom_preced_expr_varContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         let var = self
             .visit_var(ctx.var().must_some()?)?
@@ -793,11 +725,7 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
 
     fn visit_atom_preced_expr_lit(
         &mut self,
-        ctx: &'arena Atom_preced_expr_litContext<
-            'input,
-            'arena,
-            dbt_antlr4::token::TokenImpl<'input, &'input str>,
-        >,
+        ctx: &'arena Atom_preced_expr_litContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         let lit = self
             .visit_node(ctx.lit().must_some()?.as_node())?
@@ -883,11 +811,7 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
 
     fn visit_lit_int(
         &mut self,
-        ctx: &'arena Lit_intContext<
-            'input,
-            'arena,
-            dbt_antlr4::token::TokenImpl<'input, &'input str>,
-        >,
+        ctx: &'arena Lit_intContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         let int = ctx
             .start()
@@ -905,11 +829,7 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
 
     fn visit_lit_float(
         &mut self,
-        ctx: &'arena Lit_floatContext<
-            'input,
-            'arena,
-            dbt_antlr4::token::TokenImpl<'input, &'input str>,
-        >,
+        ctx: &'arena Lit_floatContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         let float = ctx
             .start()
@@ -927,11 +847,7 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
 
     fn visit_lit_constr(
         &mut self,
-        ctx: &'arena Lit_constrContext<
-            'input,
-            'arena,
-            dbt_antlr4::token::TokenImpl<'input, &'input str>,
-        >,
+        ctx: &'arena Lit_constrContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         let symbol = ctx.CONSTR().must_some()?.symbol;
         let con_str = symbol.text[1..symbol.text.len() - 1].to_owned();
