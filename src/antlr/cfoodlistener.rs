@@ -135,14 +135,6 @@ where
     /// @param ctx the parse tree
     fn exit_tys<'input: 'arena>(&mut self, _ctx: &TysContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
 
-    /// Enter a parse tree produced by {@link CFoodParser#ty}.
-    /// @param ctx the parse tree
-    fn enter_ty<'input: 'arena>(&mut self, _ctx: &TyContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
-
-    /// Exit a parse tree produced by {@link CFoodParser#ty}.
-    /// @param ctx the parse tree
-    fn exit_ty<'input: 'arena>(&mut self, _ctx: &TyContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
-
     /// Enter a parse tree produced by the {@code ty_kind_ty}
     /// labeled alternative in {@link CFoodParser#ty_kind}.
     /// @param ctx the parse tree
@@ -250,6 +242,14 @@ where
     /// Exit a parse tree produced by {@link CFoodParser#var}.
     /// @param ctx the parse tree
     fn exit_var<'input: 'arena>(&mut self, _ctx: &VarContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Enter a parse tree produced by {@link CFoodParser#refer}.
+    /// @param ctx the parse tree
+    fn enter_refer<'input: 'arena>(&mut self, _ctx: &ReferContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Exit a parse tree produced by {@link CFoodParser#refer}.
+    /// @param ctx the parse tree
+    fn exit_refer<'input: 'arena>(&mut self, _ctx: &ReferContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
 
     /// Enter a parse tree produced by the {@code calc_expr_use}
     /// labeled alternative in {@link CFoodParser#calc_expr}.
@@ -368,6 +368,16 @@ where
     /// labeled alternative in {@link CFoodParser#atom_preced_expr}.
     /// @param ctx the parse tree
     fn exit_atom_preced_expr_var<'input: 'arena>(&mut self, _ctx: &Atom_preced_expr_varContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Enter a parse tree produced by the {@code atom_preced_expr_refer}
+    /// labeled alternative in {@link CFoodParser#atom_preced_expr}.
+    /// @param ctx the parse tree
+    fn enter_atom_preced_expr_refer<'input: 'arena>(&mut self, _ctx: &Atom_preced_expr_referContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Exit a parse tree produced by the {@code atom_preced_expr_refer}
+    /// labeled alternative in {@link CFoodParser#atom_preced_expr}.
+    /// @param ctx the parse tree
+    fn exit_atom_preced_expr_refer<'input: 'arena>(&mut self, _ctx: &Atom_preced_expr_referContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
 
     /// Enter a parse tree produced by the {@code atom_preced_expr_lit}
     /// labeled alternative in {@link CFoodParser#atom_preced_expr}.

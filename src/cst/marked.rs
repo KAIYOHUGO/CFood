@@ -38,18 +38,9 @@ macro_rules! impl_marked_for_id {
 }
 
 impl_marked_for_id![
-    File, DeclVar, DeclAlias, DeclFunc, TyArrow, Alias, ExprBinary, ExprCall, ExprMagic,
-    ExprAssign, ExprVar, Param, StmtBranch, StmtBlock, StmtIter, StmtLet, StmtRet
+    File, DeclVar, DeclAlias, DeclFunc, Alias, ExprBinary, ExprCall, ExprMagic, ExprAssign,
+    ExprVar, ExprRefer, Param, StmtBranch, StmtBlock, StmtIter, StmtLet, StmtRet
 ];
-
-impl Marked for Ty {
-    fn mark(&self) -> usize {
-        match self {
-            Ty::Kind(s) => s.mark(),
-            Ty::Arrow(s) => s.mark(),
-        }
-    }
-}
 
 impl Marked for Kind {
     fn mark(&self) -> usize {
@@ -83,12 +74,12 @@ impl Marked for Op {
     }
 }
 
-impl Marked for Lit {
+impl Marked for ExprLit {
     fn mark(&self) -> usize {
         match self {
-            Lit::Int(s) => s.mark(),
-            Lit::Float(s) => s.mark(),
-            Lit::ConStr(s) => s.mark(),
+            ExprLit::Int(s) => s.mark(),
+            ExprLit::Float(s) => s.mark(),
+            ExprLit::ConStr(s) => s.mark(),
         }
     }
 }
@@ -112,6 +103,7 @@ impl Marked for Expr {
             Expr::Magic(s) => s.mark(),
             Expr::Lit(s) => s.mark(),
             Expr::Var(s) => s.mark(),
+            Expr::Refer(s) => s.mark(),
         }
     }
 }

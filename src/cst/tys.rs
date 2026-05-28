@@ -26,22 +26,9 @@ pub enum Decl {
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct DeclVar {
     pub id: usize,
-    pub ty: Ty,
+    pub ty: Kind,
     pub name: Token<String>,
     pub init: Option<Expr>,
-}
-
-#[derive(Debug, Clone, PartialEq, PartialOrd, Is, FromVariant)]
-pub enum Ty {
-    Kind(Kind),
-    Arrow(TyArrow),
-}
-
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub struct TyArrow {
-    pub id: usize,
-    pub input: Kind,
-    pub output: Box<Ty>,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Is)]
@@ -66,8 +53,9 @@ pub enum Expr {
     Assign(ExprAssign),
     Call(ExprCall),
     Magic(ExprMagic),
-    Lit(Lit),
+    Lit(ExprLit),
     Var(ExprVar),
+    Refer(ExprRefer),
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -129,10 +117,16 @@ pub struct ExprVar {
     pub name: Token<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct ExprRefer {
+    pub id: usize,
+    pub name: Token<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, PartialOrd, Is, FromVariant)]
-pub enum Lit {
-    Int(Token<i32>),
-    Float(Token<f32>),
+pub enum ExprLit {
+    Int(Token<i64>),
+    Float(Token<f64>),
     ConStr(Token<String>),
 }
 
@@ -148,14 +142,14 @@ pub struct DeclFunc {
     pub id: usize,
     pub name: Token<String>,
     pub params: Vec<Param>,
-    pub ret: Ty,
+    pub ret: Kind,
     pub block: StmtBlock,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct Param {
     pub id: usize,
-    pub ty: Ty,
+    pub ty: Kind,
     pub name: Token<String>,
 }
 

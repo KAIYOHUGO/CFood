@@ -22,7 +22,6 @@ TY_void: 'void';
 MAGIC_printf: 'printf';
 MAGIC_scanf: 'scanf';
 
-ARROW: '->';
 PAREN_L: '(';
 PAREN_R: ')';
 
@@ -45,6 +44,7 @@ PEO: '##';
 
 ASSIGN: '=';
 COMMA: ',';
+REFER: '&';
 SEMICOLON: ';';
 
 TYPE: [A-Z] [a-zA-Z0-9_]*;
@@ -67,14 +67,14 @@ var_decl
     : var_decl_ty var_decl_init SEMICOLON;
     
 var_decl_ty
-    : ty IDENT;
+    : ty_kind IDENT;
 
 var_decl_init
     : ASSIGN expr
     | ;
 
 fn_decl
-    : ty IDENT params block;
+    : ty_kind IDENT params block;
 
 ty_decl:
     KW_type TYPE ASSIGN PAREN_L tys PAREN_R SEMICOLON;
@@ -99,9 +99,6 @@ lit
 tys
     : ty_kind COMMA tys
     | ty_kind;
-ty
-    : ty_kind
-    | ty_kind ARROW ty;
 
 // yeah type theory naming let's gooooooo
 ty_kind
@@ -152,6 +149,9 @@ assign_expr
 var
     : IDENT;
 
+refer
+    : REFER IDENT;
+
 calc_expr
     : lhs=call_preced_expr cmp_preced_op rhs=call_preced_expr # calc_expr_use
     | call_preced_expr                                        # calc_expr_pass
@@ -181,6 +181,7 @@ mul_preced_expr
 atom_preced_expr
     : apply_list # atom_preced_expr_apply_list
     | var        # atom_preced_expr_var
+    | refer      # atom_preced_expr_refer
     | lit        # atom_preced_expr_lit
     ;
 

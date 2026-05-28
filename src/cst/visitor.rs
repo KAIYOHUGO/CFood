@@ -13,19 +13,12 @@ pub trait Visitor: Sized {
     fn visit_decl_var(&mut self, n: &DeclVar) -> Result<Self::Res, Self::Error> {
         n.visit(self)
     }
-    fn visit_ty(&mut self, n: &Ty) -> Result<Self::Res, Self::Error> {
-        n.visit(self)
-    }
-    fn visit_ty_arrow(&mut self, n: &TyArrow) -> Result<Self::Res, Self::Error> {
-        n.visit(self)
-    }
     fn visit_kind(&mut self, n: &Kind) -> Result<Self::Res, Self::Error> {
         n.visit(self)
     }
     fn visit_alias(&mut self, n: &Alias) -> Result<Self::Res, Self::Error> {
         n.visit(self)
     }
-
     fn visit_expr(&mut self, n: &Expr) -> Result<Self::Res, Self::Error> {
         n.visit(self)
     }
@@ -50,7 +43,10 @@ pub trait Visitor: Sized {
     fn visit_expr_var(&mut self, n: &ExprVar) -> Result<Self::Res, Self::Error> {
         n.visit(self)
     }
-    fn visit_lit(&mut self, n: &Lit) -> Result<Self::Res, Self::Error> {
+    fn visit_expr_refer(&mut self, n: &ExprRefer) -> Result<Self::Res, Self::Error> {
+        n.visit(self)
+    }
+    fn visit_lit(&mut self, n: &ExprLit) -> Result<Self::Res, Self::Error> {
         n.visit(self)
     }
 
@@ -166,34 +162,10 @@ impl VisitAble for DeclVar {
     where
         T: Visitor,
     {
-        ctx.visit_ty(&self.ty)?;
+        ctx.visit_kind(&self.ty)?;
         if let Some(init) = &self.init {
             ctx.visit_expr(init)?;
         }
-        Ok(T::Res::default())
-    }
-}
-
-impl VisitAble for Ty {
-    fn visit<T>(&self, ctx: &mut T) -> Result<T::Res, T::Error>
-    where
-        T: Visitor,
-    {
-        match self {
-            Ty::Kind(k) => ctx.visit_kind(k)?,
-            Ty::Arrow(a) => ctx.visit_ty_arrow(a)?,
-        };
-        Ok(T::Res::default())
-    }
-}
-
-impl VisitAble for TyArrow {
-    fn visit<T>(&self, ctx: &mut T) -> Result<T::Res, T::Error>
-    where
-        T: Visitor,
-    {
-        ctx.visit_kind(&self.input)?;
-        ctx.visit_ty(&self.output)?;
         Ok(T::Res::default())
     }
 }
@@ -235,6 +207,7 @@ impl VisitAble for Expr {
             Expr::Magic(x) => ctx.visit_expr_magic(x)?,
             Expr::Lit(x) => ctx.visit_lit(x)?,
             Expr::Var(x) => ctx.visit_expr_var(x)?,
+            Expr::Refer(x) => ctx.visit_expr_refer(x)?,
         };
         Ok(T::Res::default())
     }
@@ -314,7 +287,16 @@ impl VisitAble for ExprVar {
     }
 }
 
-impl VisitAble for Lit {
+impl VisitAble for ExprRefer {
+    fn visit<T>(&self, _ctx: &mut T) -> Result<T::Res, T::Error>
+    where
+        T: Visitor,
+    {
+        Ok(T::Res::default())
+    }
+}
+
+impl VisitAble for ExprLit {
     fn visit<T>(&self, _ctx: &mut T) -> Result<T::Res, T::Error>
     where
         T: Visitor,
@@ -344,7 +326,7 @@ impl VisitAble for DeclFunc {
         for p in &self.params {
             ctx.visit_param(p)?;
         }
-        ctx.visit_ty(&self.ret)?;
+        ctx.visit_kind(&self.ret)?;
         ctx.visit_stmt_block(&self.block)?;
         Ok(T::Res::default())
     }
@@ -355,7 +337,7 @@ impl VisitAble for Param {
     where
         T: Visitor,
     {
-        ctx.visit_ty(&self.ty)?;
+        ctx.visit_kind(&self.ty)?;
         Ok(T::Res::default())
     }
 }

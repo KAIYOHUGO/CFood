@@ -192,18 +192,6 @@ pub trait CFoodBaseListener<'arena>:
      * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
      * @param ctx the parse tree
 ,      */
-    fn enter_ty(&mut self, _ctx: &TyContext<'input, 'arena>) {}
-    /**
-     * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
-     * @param ctx the parse tree
-     */
-    fn exit_ty(&mut self, _ctx: &TyContext<'input, 'arena>) {}
-
-
-    /**
-     * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
-     * @param ctx the parse tree
-,      */
     fn enter_ty_kind_ty(&mut self, _ctx: &Ty_kind_tyContext<'input, 'arena>) {}
     /**
      * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
@@ -360,6 +348,18 @@ pub trait CFoodBaseListener<'arena>:
      * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
      * @param ctx the parse tree
 ,      */
+    fn enter_refer(&mut self, _ctx: &ReferContext<'input, 'arena>) {}
+    /**
+     * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
+     * @param ctx the parse tree
+     */
+    fn exit_refer(&mut self, _ctx: &ReferContext<'input, 'arena>) {}
+
+
+    /**
+     * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
+     * @param ctx the parse tree
+,      */
     fn enter_calc_expr_use(&mut self, _ctx: &Calc_expr_useContext<'input, 'arena>) {}
     /**
      * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
@@ -498,6 +498,18 @@ pub trait CFoodBaseListener<'arena>:
      * @param ctx the parse tree
      */
     fn exit_atom_preced_expr_var(&mut self, _ctx: &Atom_preced_expr_varContext<'input, 'arena>) {}
+
+
+    /**
+     * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
+     * @param ctx the parse tree
+,      */
+    fn enter_atom_preced_expr_refer(&mut self, _ctx: &Atom_preced_expr_referContext<'input, 'arena>) {}
+    /**
+     * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
+     * @param ctx the parse tree
+     */
+    fn exit_atom_preced_expr_refer(&mut self, _ctx: &Atom_preced_expr_referContext<'input, 'arena>) {}
 
 
     /**

@@ -96,7 +96,7 @@ impl<'a> Visitor for CstToSexpr<'a> {
     }
 
     fn visit_decl_var(&mut self, n: &DeclVar) -> Result<Self::Res, Self::Error> {
-        let ty = self.visit_ty(&n.ty)?;
+        let ty = self.visit_kind(&n.ty)?;
         let name = self.atom_str(&n.name);
         let init = match &n.init {
             Some(e) => format!(" (init {})", self.visit_expr(e)?),
@@ -109,25 +109,6 @@ impl<'a> Visitor for CstToSexpr<'a> {
             name,
             ty,
             init
-        ))
-    }
-
-    fn visit_ty(&mut self, n: &Ty) -> Result<Self::Res, Self::Error> {
-        match n {
-            Ty::Kind(k) => Ok(format!("(ty {})", self.visit_kind(k)?)),
-            Ty::Arrow(a) => Ok(format!("(ty {})", self.visit_ty_arrow(a)?)),
-        }
-    }
-
-    fn visit_ty_arrow(&mut self, n: &TyArrow) -> Result<Self::Res, Self::Error> {
-        let input = self.visit_kind(&n.input)?;
-        let output = self.visit_ty(&n.output)?;
-        Ok(format!(
-            "(arrow {}{} (input {}) (output {}))",
-            self.span(n),
-            self.extra(n.id),
-            input,
-            output
         ))
     }
 
@@ -174,7 +155,7 @@ impl<'a> Visitor for CstToSexpr<'a> {
             .iter()
             .map(|p| self.visit_param(p))
             .collect::<Result<Vec<_>, _>>()?;
-        let ret = self.visit_ty(&n.ret)?;
+        let ret = self.visit_kind(&n.ret)?;
         let block = self.visit_stmt_block(&n.block)?;
         Ok(format!(
             "(func {}{} (name {}) {} (ret {}) {})",
@@ -193,7 +174,7 @@ impl<'a> Visitor for CstToSexpr<'a> {
             self.span(n),
             self.extra(n.id),
             self.atom_str(&n.name),
-            self.visit_ty(&n.ty)?
+            self.visit_kind(&n.ty)?
         ))
     }
 
@@ -283,17 +264,6 @@ impl<'a> Visitor for CstToSexpr<'a> {
         }
     }
 
-    fn visit_expr(&mut self, n: &Expr) -> Result<Self::Res, Self::Error> {
-        match n {
-            Expr::Binary(x) => self.visit_expr_binary(x),
-            Expr::Assign(x) => self.visit_expr_assign(x),
-            Expr::Call(x) => self.visit_expr_call(x),
-            Expr::Magic(x) => self.visit_expr_magic(x),
-            Expr::Lit(x) => self.visit_lit(x),
-            Expr::Var(x) => self.visit_expr_var(x),
-        }
-    }
-
     fn visit_expr_binary(&mut self, n: &ExprBinary) -> Result<Self::Res, Self::Error> {
         Ok(format!(
             "(binary {}{} (op {}) (lhs {}) (rhs {}))",
@@ -348,12 +318,22 @@ impl<'a> Visitor for CstToSexpr<'a> {
         Ok(format!("(var {span}{} (name {}))", self.extra(n.id), name))
     }
 
-    fn visit_lit(&mut self, n: &Lit) -> Result<Self::Res, Self::Error> {
+    fn visit_expr_refer(&mut self, n: &ExprRefer) -> Result<Self::Res, Self::Error> {
+        let span = self.span(n);
+        let name = self.atom_str(&n.name);
+        Ok(format!(
+            "(refer {span}{} (name {}))",
+            self.extra(n.id),
+            name
+        ))
+    }
+
+    fn visit_lit(&mut self, n: &ExprLit) -> Result<Self::Res, Self::Error> {
         let span = self.span(n);
         let s = match n {
-            Lit::Int(t) => format!("(int {span}{} {})", self.extra(t.id), t.inner),
-            Lit::Float(t) => format!("(float {span}{} {})", self.extra(t.id), t.inner),
-            Lit::ConStr(t) => format!("(str {})", self.atom_str(t)),
+            ExprLit::Int(t) => format!("(int {span}{} {})", self.extra(t.id), t.inner),
+            ExprLit::Float(t) => format!("(float {span}{} {})", self.extra(t.id), t.inner),
+            ExprLit::ConStr(t) => format!("(str {})", self.atom_str(t)),
         };
         Ok(s)
     }

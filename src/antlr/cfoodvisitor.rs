@@ -78,10 +78,6 @@ where
     /// @param ctx the parse tree
     fn visit_tys(&mut self, ctx: &'arena TysContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
 
-    /// Visit a parse tree produced by {@link CFoodParser#ty}.
-    /// @param ctx the parse tree
-    fn visit_ty(&mut self, ctx: &'arena TyContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
-
     /// Visit a parse tree produced by the {@code ty_kind_ty}
     /// labeled alternative in {@link CFoodParser#ty_kind}.
     /// @param ctx the parse tree
@@ -135,6 +131,10 @@ where
     /// Visit a parse tree produced by {@link CFoodParser#var}.
     /// @param ctx the parse tree
     fn visit_var(&mut self, ctx: &'arena VarContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
+
+    /// Visit a parse tree produced by {@link CFoodParser#refer}.
+    /// @param ctx the parse tree
+    fn visit_refer(&mut self, ctx: &'arena ReferContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
 
     /// Visit a parse tree produced by the {@code calc_expr_use}
     /// labeled alternative in {@link CFoodParser#calc_expr}.
@@ -194,6 +194,11 @@ where
     /// labeled alternative in {@link CFoodParser#atom_preced_expr}.
     /// @param ctx the parse tree
     fn visit_atom_preced_expr_var(&mut self, ctx: &'arena Atom_preced_expr_varContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
+
+    /// Visit a parse tree produced by the {@code atom_preced_expr_refer}
+    /// labeled alternative in {@link CFoodParser#atom_preced_expr}.
+    /// @param ctx the parse tree
+    fn visit_atom_preced_expr_refer(&mut self, ctx: &'arena Atom_preced_expr_referContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
 
     /// Visit a parse tree produced by the {@code atom_preced_expr_lit}
     /// labeled alternative in {@link CFoodParser#atom_preced_expr}.
