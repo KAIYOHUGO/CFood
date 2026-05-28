@@ -157,11 +157,17 @@ impl Display for AType {
 /// `Bottom -- Vec -- Top`
 /// `[F2's in , F1's in ]`
 /// `[F1's out, F2's out]`
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Eq)]
 pub struct CType {
     pub cst_id: usize,
     pub inputs: Vec<Prim>,
     pub outputs: Vec<Prim>,
+}
+
+impl PartialEq for CType {
+    fn eq(&self, other: &Self) -> bool {
+        self.inputs == other.inputs && self.outputs == other.outputs
+    }
 }
 
 impl Display for CType {

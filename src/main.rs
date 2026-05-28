@@ -1,8 +1,12 @@
 use cfood::{
-    antlr::{cfoodparser::CFoodTreeWalker, cfoodvisitor::CFoodVisitor, *},
+    antlr::*,
     checker::TLT,
+    compiler::{Compiler, LLVMCtx},
     cst::{CstToSexpr, parse_to_cst, visitor::Visitor},
-    print::SexprAst,
+};
+use inkwell::{
+    context::Context,
+    targets::{InitializationConfig, Target},
 };
 
 use std::{env, fs, io};
@@ -27,6 +31,8 @@ fn main() -> Result<()> {
         fs::read_to_string(input)?
     };
 
+    Target::initialize_x86(&InitializationConfig::default());
+
     let ast = Arena::with(|arena| {
         let lexer = cfoodlexer::CFoodLexer::<_, CommonTokenFactory>::new(
             arena,
@@ -44,6 +50,22 @@ fn main() -> Result<()> {
 
         let mut cst_to_sexpr = CstToSexpr::new(&span_store, vec![&tlt]);
         let s = cst_to_sexpr.visit_file(&file)?;
+
+        let context = Context::create();
+        let module = context.create_module("cfood");
+        let builder = context.create_builder();
+        let mut compiler = Compiler::new(
+            LLVMCtx {
+                context: &context,
+                builder: &builder,
+                module: &module,
+            },
+            "x86_64-linux-gnu",
+            tlt.refer_map,
+            tlt.type_store,
+        )?;
+
+        compiler.compile(&file, "./output.ll")?;
 
         // let sexpr = Box::new(SexprAst::new(
         //     &cfoodparser::ruleNames,

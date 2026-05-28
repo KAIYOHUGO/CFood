@@ -9,14 +9,18 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct TLT<'a> {
     pub type_store: TypeStore,
-    pub alias: BTreeMap<&'a str, TLTAlias>,
-    pub block: Vec<BTreeMap<&'a str, TypeId>>,
+    alias: BTreeMap<&'a str, TLTAlias>,
+
+    // cst_id, type_id
+    block: Vec<BTreeMap<&'a str, (usize, TypeId)>>,
+    // cst_id, cst_id
+    pub refer_map: BTreeMap<usize, usize>,
+
     pub errors: Vec<CFoodError>,
 }
 
 #[derive(Clone, Debug)]
 pub struct TLTAlias {
-    cst_id: usize,
     prims: Vec<Prim>,
 }
 
@@ -27,6 +31,7 @@ impl<'a> Default for TLT<'a> {
             block: vec![Default::default()],
             type_store: Default::default(),
             errors: Default::default(),
+            refer_map: Default::default(),
         }
     }
 }
@@ -126,10 +131,7 @@ impl<'a> TLT<'a> {
                     let res = helper(decl_alias, &lookup_alias, max_path);
                     match res {
                         Ok(prims) => {
-                            let alias = TLTAlias {
-                                cst_id: decl_alias.id,
-                                prims,
-                            };
+                            let alias = TLTAlias { prims };
                             self.alias.insert(&decl_alias.name.inner, alias);
                         }
                         // FIXME: add diag
@@ -168,56 +170,24 @@ impl<'a> TLT<'a> {
         }
     }
 
-    // left to right = first to last
-    fn normalize_arrow(&mut self, arrow: &TyArrow) -> Option<(Vec<Prim>, Vec<Prim>)> {
-        let mut inputs = self.normaliaze_kind(&arrow.input)?;
-        let outputs;
-
-        let mut ty = &*arrow.output;
-        loop {
-            match ty {
-                Ty::Kind(kind) => {
-                    outputs = self.normaliaze_kind(kind)?;
-                    break;
-                }
-                Ty::Arrow(ty_arrow) => {
-                    inputs.extend(self.normaliaze_kind(&ty_arrow.input)?);
-                    ty = &ty_arrow.output;
-                }
-            }
-        }
-
-        Some((inputs, outputs))
-    }
-
     fn check_decl_var(&mut self, n: &'a DeclVar) -> EResult {
-        let id = match &n.ty {
-            Ty::Kind(kind) => {
-                let mut outputs = self.normaliaze_kind(&kind).unwrap();
-                outputs.reverse();
+        let mut outputs = self.normaliaze_kind(&n.ty).unwrap();
+        outputs.reverse();
 
-                self.type_store.c_type(CType {
-                    cst_id: n.id,
-                    outputs,
-                    ..Default::default()
-                })
-            }
-            Ty::Arrow(ty_arrow) => {
-                let (inputs, mut outputs) = self.normalize_arrow(&ty_arrow).unwrap();
-                outputs.reverse();
-                self.type_store.c_type(CType {
-                    cst_id: n.id,
-                    inputs,
-                    outputs,
-                })
-            }
-        };
+        let id = self.type_store.c_type(CType {
+            cst_id: n.id,
+            outputs,
+            ..Default::default()
+        });
+
         let block = self.block.last_mut().unwrap();
-        block.insert(&n.name.inner, id);
+        block.insert(&n.name.inner, (n.id, id));
         if let Some(expr) = &n.init {
             self.check_expr(expr)?;
             let expr_id = self.type_store.get_type_id(expr.mark()).unwrap();
             if !self.type_store.is_eq(id, expr_id) {
+                // FIXME: remove panic
+                // and add diag
                 panic!()
             }
         }
@@ -227,47 +197,25 @@ impl<'a> TLT<'a> {
     fn check_decl_func(&mut self, n: &'a DeclFunc) -> EResult {
         let mut params = vec![];
         for param in &n.params {
-            let id = match &param.ty {
-                Ty::Kind(kind) => {
-                    let mut outputs = self.normaliaze_kind(&kind).unwrap();
-                    outputs.reverse();
+            let mut outputs = self.normaliaze_kind(&param.ty).unwrap();
+            outputs.reverse();
 
-                    self.type_store.c_type(CType {
-                        cst_id: param.id,
-                        outputs,
-                        ..Default::default()
-                    })
-                }
-                Ty::Arrow(_ty_arrow) => {
-                    // FIXME: add diag
-                    // FIXME: remove panic
-                    panic!()
-                }
-            };
+            let id = self.type_store.c_type(CType {
+                cst_id: param.id,
+                outputs,
+                ..Default::default()
+            });
             params.push(id);
         }
 
-        let ret = match &n.ret {
-            Ty::Kind(kind) => {
-                let mut outputs = self.normaliaze_kind(&kind).unwrap();
-                outputs.reverse();
+        let mut outputs = self.normaliaze_kind(&n.ret).unwrap();
+        outputs.reverse();
 
-                self.type_store.c_type(CType {
-                    cst_id: n.ret.mark(),
-                    outputs,
-                    ..Default::default()
-                })
-            }
-            Ty::Arrow(ty_arrow) => {
-                let (inputs, mut outputs) = self.normalize_arrow(&ty_arrow).unwrap();
-                outputs.reverse();
-                self.type_store.c_type(CType {
-                    cst_id: n.ret.mark(),
-                    inputs,
-                    outputs,
-                })
-            }
-        };
+        let ret = self.type_store.c_type(CType {
+            cst_id: n.ret.mark(),
+            outputs,
+            ..Default::default()
+        });
 
         let mut inputs = params
             .iter()
@@ -282,15 +230,18 @@ impl<'a> TLT<'a> {
             inputs,
             outputs,
         });
-        self.block.first_mut().unwrap().insert(&n.name.inner, func);
+        self.block
+            .first_mut()
+            .unwrap()
+            .insert(&n.name.inner, (n.id, func));
 
         self.block.push(Default::default());
         let block = self.block.last_mut().unwrap();
 
         for (id, param) in params.into_iter().zip(&n.params) {
-            block.insert(&param.name.inner, id);
+            block.insert(&param.name.inner, (param.id, id));
         }
-        block.insert("return", ret);
+        block.insert("return", (usize::MAX, ret));
         self.check_stmt_block(&n.block)?;
 
         self.block.pop();
@@ -347,6 +298,7 @@ impl<'a> TLT<'a> {
             Expr::Magic(expr_magic) => self.check_expr_magic(expr_magic),
             Expr::Lit(lit) => self.check_lit(lit),
             Expr::Var(expr_var) => self.check_expr_var(expr_var),
+            Expr::Refer(expr_refer) => self.check_expr_refer(expr_refer),
         }
     }
 
@@ -460,29 +412,43 @@ impl<'a> TLT<'a> {
 
         Ok(())
     }
-    fn check_lit(&mut self, n: &'a Lit) -> EResult {
+    fn check_lit(&mut self, n: &'a ExprLit) -> EResult {
         match n {
-            Lit::Int(token) => self.type_store.prim(PrimKind::Int, token.id),
-            Lit::Float(token) => self.type_store.prim(PrimKind::Float, token.id),
-            Lit::ConStr(token) => self.type_store.prim(PrimKind::ConStr, token.id),
+            ExprLit::Int(token) => self.type_store.prim(PrimKind::Int, token.id),
+            ExprLit::Float(token) => self.type_store.prim(PrimKind::Float, token.id),
+            ExprLit::ConStr(token) => self.type_store.prim(PrimKind::ConStr, token.id),
         };
         Ok(())
     }
     fn check_expr_var(&mut self, n: &'a ExprVar) -> EResult {
         for scope in self.block.iter().rev() {
-            if let Some(id) = scope.get(n.name.inner.as_str()) {
+            if let Some((cst_id, id)) = scope.get(n.name.inner.as_str()) {
                 let mut a_type = self.type_store.get(*id).clone();
                 match &mut a_type {
                     AType::CType(ctype) => ctype.cst_id = n.id,
                     AType::Unknown(id) => *id = n.id,
                 }
                 self.type_store.a_type(a_type);
+                self.refer_map.insert(n.id, *cst_id);
 
                 return Ok(());
             }
         }
         // FIXME: Add diag
         self.type_store.unknown(n.id);
+        Ok(())
+    }
+
+    fn check_expr_refer(&mut self, n: &'a ExprRefer) -> EResult {
+        self.type_store.prim(PrimKind::Int, n.id);
+        for scope in self.block.iter().rev() {
+            if let Some((cst_id, _)) = scope.get(n.name.inner.as_str()) {
+                self.refer_map.insert(n.id, *cst_id);
+
+                return Ok(());
+            }
+        }
+        // FIXME: Add diag
         Ok(())
     }
 }
