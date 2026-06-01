@@ -1,0 +1,11 @@
+#:schema https://www.schemastore.org/cargo.json
+
+[package]
+name = "swl"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+[lib]
+crate-type = ["cdylib"]

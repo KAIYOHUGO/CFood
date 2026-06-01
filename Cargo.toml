@@ -5,6 +5,9 @@ name = "cfood"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = ["./swl"]
+
 [dependencies]
 # antlr4rust = "0.5.2"
 anyhow = "1.0.102"
