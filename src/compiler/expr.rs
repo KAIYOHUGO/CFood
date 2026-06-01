@@ -5,11 +5,17 @@ use crate::{
     compiler::Compiler,
     cst::{
         Marked,
-        tys::{Expr, ExprAssign, ExprCall, ExprLit, ExprMagic, ExprRefer, ExprVar, Magic},
+        tys::{
+            Expr, ExprAssign, ExprBinary, ExprCall, ExprLit, ExprMagic, ExprRefer, ExprVar, Magic,
+            Op,
+        },
     },
 };
 use anyhow::Result;
-use inkwell::values::{AnyValue, BasicMetadataValueEnum, BasicValueEnum, StructValue};
+use inkwell::{
+    FloatPredicate, IntPredicate,
+    values::{AnyValue, BasicMetadataValueEnum, BasicValueEnum, StructValue},
+};
 
 use super::tys::LLVMVar;
 
@@ -32,9 +38,18 @@ pub fn compile_expr<'ctx>(com: &mut Compiler<'_, 'ctx>, n: &Expr) -> Result<Stru
     assert_eq!(s.stack.len(), output_ty.len());
 
     let output_ty = com.llvm.context.struct_type(&output_ty, false);
-    let value = output_ty.const_named_struct(&s.stack);
+    let mut output = output_ty.get_undef().into();
 
-    Ok(value)
+    for i in 0..output_ty.get_field_types().len() {
+        output = com.llvm.builder.build_insert_value(
+            output,
+            s.stack[i],
+            i as u32,
+            &format!("field_{i}"),
+        )?;
+    }
+
+    Ok(output.into_struct_value())
 }
 type Stack<'ctx> = Vec<BasicValueEnum<'ctx>>;
 
@@ -46,7 +61,7 @@ struct ExprCompiler<'ctx> {
 impl<'ctx> ExprCompiler<'ctx> {
     fn compile_expr(&mut self, com: &mut Compiler<'_, 'ctx>, n: &Expr) -> Result<()> {
         match n {
-            Expr::Binary(expr_binary) => todo!(),
+            Expr::Binary(expr_binary) => self.compile_binary(com, expr_binary)?,
             Expr::Assign(expr_assign) => self.compile_assign(com, expr_assign)?,
             Expr::Call(expr_call) => self.compile_call(com, expr_call)?,
             Expr::Magic(expr_magic) => self.compile_magic(com, expr_magic)?,
@@ -57,11 +72,145 @@ impl<'ctx> ExprCompiler<'ctx> {
         Ok(())
     }
 
+    fn compile_binary(&mut self, com: &mut Compiler<'_, 'ctx>, n: &ExprBinary) -> Result<()> {
+        self.compile_expr(com, &n.rhs)?;
+        let rhs = self.stack.pop().unwrap();
+        assert!(self.stack.is_empty());
+
+        let mut lhs = Self::default();
+        lhs.compile_expr(com, &n.lhs)?;
+        let lhs = lhs.stack.pop().unwrap();
+
+        let ty = com
+            .type_store
+            .get(com.type_store.get_type_id(n.lhs.mark()).unwrap())
+            .as_c_type()
+            .unwrap()
+            .outputs[0]
+            .kind;
+
+        let value: BasicValueEnum = match ty {
+            PrimKind::Int => match n.op {
+                Op::Add(_) => com
+                    .llvm
+                    .builder
+                    .build_int_add(lhs.into_int_value(), rhs.into_int_value(), "int_add")?
+                    .into(),
+                Op::Sub(_) => com
+                    .llvm
+                    .builder
+                    .build_int_sub(lhs.into_int_value(), rhs.into_int_value(), "int_sub")?
+                    .into(),
+                Op::Mul(_) => com
+                    .llvm
+                    .builder
+                    .build_int_mul(lhs.into_int_value(), rhs.into_int_value(), "int_mul")?
+                    .into(),
+                Op::Div(_) => com
+                    .llvm
+                    .builder
+                    .build_int_signed_div(lhs.into_int_value(), rhs.into_int_value(), "int_div")?
+                    .into(),
+                Op::OpMod(_) => com
+                    .llvm
+                    .builder
+                    .build_int_signed_rem(lhs.into_int_value(), rhs.into_int_value(), "int_mod")?
+                    .into(),
+                op => {
+                    let op = match op {
+                        Op::Ne(_) => IntPredicate::NE,
+                        Op::Eq(_) => IntPredicate::EQ,
+                        Op::Lt(_) => IntPredicate::SLT,
+                        Op::Gt(_) => IntPredicate::SGT,
+                        Op::Le(_) => IntPredicate::SLE,
+                        Op::Ge(_) => IntPredicate::SGE,
+                        _ => unreachable!(),
+                    };
+                    com.llvm
+                        .builder
+                        .build_int_compare(op, lhs.into_int_value(), rhs.into_int_value(), "cmp")?
+                        .into()
+                }
+            },
+            PrimKind::Float => match n.op {
+                Op::Add(_) => com
+                    .llvm
+                    .builder
+                    .build_float_add(lhs.into_float_value(), rhs.into_float_value(), "float_add")?
+                    .into(),
+                Op::Sub(_) => com
+                    .llvm
+                    .builder
+                    .build_float_sub(lhs.into_float_value(), rhs.into_float_value(), "float_sub")?
+                    .into(),
+                Op::Mul(_) => com
+                    .llvm
+                    .builder
+                    .build_float_mul(lhs.into_float_value(), rhs.into_float_value(), "float_mul")?
+                    .into(),
+                Op::Div(_) => com
+                    .llvm
+                    .builder
+                    .build_float_div(lhs.into_float_value(), rhs.into_float_value(), "float_div")?
+                    .into(),
+                Op::OpMod(_) => com
+                    .llvm
+                    .builder
+                    .build_float_rem(lhs.into_float_value(), rhs.into_float_value(), "float_mod")?
+                    .into(),
+                Op::PEO(_) => com
+                    .llvm
+                    .builder
+                    .build_direct_call(com.power_both_side, &[lhs.into(), rhs.into()], "swl_poe")?
+                    .try_as_basic_value()
+                    .unwrap_basic(),
+                op => {
+                    let op = match op {
+                        Op::Ne(_) => FloatPredicate::ONE,
+                        Op::Eq(_) => FloatPredicate::OEQ,
+                        Op::Lt(_) => FloatPredicate::OLT,
+                        Op::Gt(_) => FloatPredicate::OGT,
+                        Op::Le(_) => FloatPredicate::OLE,
+                        Op::Ge(_) => FloatPredicate::OGE,
+                        _ => unreachable!(),
+                    };
+                    com.llvm
+                        .builder
+                        .build_float_compare(
+                            op,
+                            lhs.into_float_value(),
+                            rhs.into_float_value(),
+                            "float_cmp",
+                        )?
+                        .into()
+                }
+            },
+            PrimKind::Bool => unreachable!(),
+            PrimKind::ConStr => unreachable!(),
+        };
+        self.stack.push(value);
+        Ok(())
+    }
+
     fn compile_assign(&mut self, com: &mut Compiler<'_, 'ctx>, n: &ExprAssign) -> Result<()> {
         self.compile_expr(com, &n.rhs)?;
         let llvm_value = com.var_store.get(n.var.id).as_value().unwrap();
-        let value = llvm_value.ty.const_named_struct(&self.stack);
-        com.llvm.builder.build_store(llvm_value.value, value)?;
+
+        let output_ty = llvm_value.ty;
+        let mut output = output_ty.get_undef().into();
+
+        for i in 0..output_ty.get_field_types().len() {
+            output = com.llvm.builder.build_insert_value(
+                output,
+                self.stack[i],
+                i as u32,
+                &format!("field_{i}"),
+            )?;
+        }
+
+        com.llvm
+            .builder
+            .build_store(llvm_value.value, output.into_struct_value())?;
         Ok(())
     }
 

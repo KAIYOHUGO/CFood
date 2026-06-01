@@ -28,6 +28,7 @@ pub struct Compiler<'a, 'ctx> {
     pub(super) current_func: Option<LLVMFunc<'ctx>>,
     pub(super) printf: FunctionValue<'ctx>,
     pub(super) scanf: FunctionValue<'ctx>,
+    pub(super) power_both_side: FunctionValue<'ctx>,
     pub(super) target_machine: TargetMachine,
 }
 
@@ -47,6 +48,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let printf = llvm.module.add_function("printf", magic_type, None);
         let scanf = llvm.module.add_function("scanf", magic_type, None);
 
+        let f64_ty = llvm.context.f64_type();
+        let power_both_side = llvm.module.add_function(
+            "power_both_side",
+            f64_ty.fn_type(&[f64_ty.into(), f64_ty.into()], false),
+            None,
+        );
+
         let triple = TargetTriple::create(target_triple);
         let target = Target::from_triple(&triple)?;
         let target_machine = target
@@ -59,6 +67,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             type_store,
             printf,
             scanf,
+            power_both_side,
             target_machine,
         })
     }
@@ -76,7 +85,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 .context
                 .ptr_sized_int_type(&self.target_machine.get_target_data(), None)
                 .into(),
-            PrimKind::Float => self.llvm.context.f32_type().into(),
+            PrimKind::Float => self.llvm.context.f64_type().into(),
             PrimKind::Bool => self.llvm.context.bool_type().into(),
             PrimKind::ConStr => self.llvm.context.ptr_type(Default::default()).into(),
         }

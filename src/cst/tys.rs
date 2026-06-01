@@ -7,7 +7,7 @@ pub struct Token<T> {
     pub inner: T,
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct Id(pub usize);
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -66,7 +66,7 @@ pub struct ExprBinary {
     pub rhs: Box<Expr>,
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Is)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Is)]
 pub enum Op {
     Add(Id),
     Sub(Id),
