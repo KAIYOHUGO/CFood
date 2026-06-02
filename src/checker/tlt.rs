@@ -191,24 +191,6 @@ impl<'a> TLT<'a> {
             ..Default::default()
         });
 
-        let block = self.block.last_mut().unwrap();
-        let prev_declare = block.insert(&n.name.inner, (n.id, id));
-        if let Some((cst_id, _)) = prev_declare {
-            self.errors.push(CFoodError {
-                message: "Redeclaration of variable".to_owned(),
-                labels: vec![
-                    CFoodErrorLabel {
-                        cst_id: cst_id,
-                        label: Some(format!("first variable declared here")),
-                    },
-                    CFoodErrorLabel {
-                        cst_id: n.id,
-                        label: Some(format!("redeclared here")),
-                    },
-                ],
-                ..Default::default()
-            });
-        }
         if let Some(expr) = &n.init {
             self.check_expr(expr)?;
             let expr_id = self.type_store.get_type_id(expr.mark()).unwrap();
@@ -233,6 +215,25 @@ impl<'a> TLT<'a> {
                 });
             }
         }
+        let block = self.block.last_mut().unwrap();
+        let prev_declare = block.insert(&n.name.inner, (n.id, id));
+        if let Some((cst_id, _)) = prev_declare {
+            self.errors.push(CFoodError {
+                message: "Redeclaration of variable".to_owned(),
+                labels: vec![
+                    CFoodErrorLabel {
+                        cst_id: cst_id,
+                        label: Some(format!("first variable declared here")),
+                    },
+                    CFoodErrorLabel {
+                        cst_id: n.id,
+                        label: Some(format!("redeclared here")),
+                    },
+                ],
+                ..Default::default()
+            });
+        }
+
         Ok(())
     }
 
@@ -601,7 +602,7 @@ impl<'a> TLT<'a> {
             });
         }
 
-        self.type_store.void(n.id);
+        self.type_store.prim(PrimKind::Int, n.id);
 
         Ok(())
     }
