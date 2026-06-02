@@ -14,6 +14,7 @@ use crate::{
     checker::{PrimKind, TypeStore},
     compiler::{
         expr::compile_expr,
+        stmt,
         tys::{LLVMFunc, LLVMVarStore},
     },
     cst::tys::*,
@@ -155,7 +156,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     pub(super) fn compile_stmt(&mut self, n: &Stmt) -> Result<()> {
         match n {
             Stmt::DeclVar(decl_var) => decl::compile_decl_var(self, decl_var),
-            Stmt::Branch(stmt_branch) => todo!(),
+            Stmt::Branch(stmt_branch) => stmt::compile_stmt_branch(self, stmt_branch),
             Stmt::Iter(stmt_iter) => todo!(),
             Stmt::Block(stmt_block) => self.compile_stmt_block(stmt_block),
             Stmt::AutoLet(stmt_let) => todo!(),
