@@ -577,10 +577,7 @@ impl<'a> TLT<'a> {
         let rhs = self.type_store.get_type_id(n.rhs.mark()).unwrap();
         let rhs = self.type_store.get(rhs);
         let is_vaild = rhs.as_c_type().is_some_and(|x| {
-            x.inputs.is_empty()
-                && x.outputs
-                    .first()
-                    .is_some_and(|x| x.kind == PrimKind::ConStr)
+            x.inputs.is_empty() && x.outputs.last().is_some_and(|x| x.kind == PrimKind::ConStr)
         });
         if !is_vaild {
             let (message, help) = match n.lhs {
