@@ -231,18 +231,23 @@ impl<'ctx> ExprCompiler<'ctx> {
             .into_iter()
             .map(|x| x.into())
             .collect();
-        match n.lhs {
+
+        let value = match n.lhs {
             Magic::Printf(_) => {
                 com.llvm
                     .builder
-                    .build_direct_call(com.symbol.printf, &args, "printf")?;
+                    .build_direct_call(com.symbol.printf, &args, "printf")?
             }
             Magic::Scanf(_) => {
                 com.llvm
                     .builder
-                    .build_direct_call(com.symbol.scanf, &args, "scanf")?;
+                    .build_direct_call(com.symbol.scanf, &args, "scanf")?
             }
         }
+        .try_as_basic_value()
+        .unwrap_basic();
+
+        self.stack.push(value);
 
         Ok(())
     }

@@ -47,10 +47,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     ) -> Result<Self> {
         let var_store = LLVMVarStore::new(refer_map);
 
-        let magic_type = llvm
+        let triple = TargetTriple::create(target_triple);
+        let target = Target::from_triple(&triple)?;
+        let target_machine = target
+            .create_target_machine_from_options(&triple, Default::default())
+            .context("Cannot create tuple")?;
+
+        let int_ty = llvm
             .context
-            .i32_type()
-            .fn_type(&[llvm.context.ptr_type(Default::default()).into()], true);
+            .ptr_sized_int_type(&target_machine.get_target_data(), None);
+        let magic_type = int_ty.fn_type(&[llvm.context.ptr_type(Default::default()).into()], true);
         let printf = llvm.module.add_function("printf", magic_type, None);
         let scanf = llvm.module.add_function("scanf", magic_type, None);
 
@@ -60,12 +66,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             f64_ty.fn_type(&[f64_ty.into(), f64_ty.into()], false),
             None,
         );
-
-        let triple = TargetTriple::create(target_triple);
-        let target = Target::from_triple(&triple)?;
-        let target_machine = target
-            .create_target_machine_from_options(&triple, Default::default())
-            .context("Cannot create tuple")?;
         let symbol = Symbol {
             printf,
             scanf,
