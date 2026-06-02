@@ -7,7 +7,6 @@ use dbt_antlr4::{
 };
 use from_variant::FromVariant;
 use is_macro::Is;
-use miette::MietteDiagnostic;
 use unescaper::unescape;
 
 pub fn parse_to_cst<'input: 'arena, 'arena>(
@@ -27,8 +26,6 @@ pub fn parse_to_cst<'input: 'arena, 'arena>(
 struct Parser {
     count: usize,
     spanned: SpanStore,
-
-    errors: Vec<MietteDiagnostic>,
 }
 
 impl Parser {
@@ -113,6 +110,7 @@ impl<T> MustSomeNode for Option<T> {
             #[cfg(debug_assertions)]
             panic!();
 
+            #[cfg(not(debug_assertions))]
             ANTLRError::custom_error("This must be some, may cause by a malformed ast".to_owned())
         })
     }
@@ -123,6 +121,7 @@ macro_rules! bail_cst {
         #[cfg(debug_assertions)]
         panic!();
 
+        #[allow(unreachable_code)]
         return Err(ANTLRError::custom_error("Malformed ast".to_owned()));
     }};
 }
@@ -844,7 +843,6 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
         let con_str = symbol.text[1..symbol.text.len() - 1].to_owned();
         let lit: ExprLit = Token {
             id: self.get_id_with_symbol(symbol),
-            // FIXME: add diag
             inner: unescape(&con_str).map_err(|e| ANTLRError::custom_error(e.to_string()))?,
         }
         .into();

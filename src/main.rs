@@ -3,12 +3,13 @@ use cfood::{
     checker::TLT,
     compiler::{Compiler, LLVMCtx},
     cst::{CstToSexpr, parse_to_cst, visitor::Visitor},
+    error::PanicHandler,
 };
 use inkwell::{
     context::Context,
     targets::{InitializationConfig, Target},
 };
-use miette::{MietteHandler, Report};
+use miette::Report;
 
 use std::{env, fs, io};
 
@@ -20,6 +21,7 @@ use dbt_antlr4::{
 
 fn main() -> Result<()> {
     miette::set_panic_hook();
+    let _handler = PanicHandler;
 
     let mut args = env::args().skip(1);
     let pretty = env::var("PRETTY")
