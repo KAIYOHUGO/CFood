@@ -161,7 +161,11 @@ impl<'ctx> ExprCompiler<'ctx> {
                 Op::PEO(_) => com
                     .llvm
                     .builder
-                    .build_direct_call(com.power_both_side, &[lhs.into(), rhs.into()], "swl_poe")?
+                    .build_direct_call(
+                        com.symbol.power_both_side,
+                        &[lhs.into(), rhs.into()],
+                        "swl_poe",
+                    )?
                     .try_as_basic_value()
                     .unwrap_basic(),
                 op => {
@@ -231,12 +235,12 @@ impl<'ctx> ExprCompiler<'ctx> {
             Magic::Printf(_) => {
                 com.llvm
                     .builder
-                    .build_direct_call(com.printf, &args, "printf")?;
+                    .build_direct_call(com.symbol.printf, &args, "printf")?;
             }
             Magic::Scanf(_) => {
                 com.llvm
                     .builder
-                    .build_direct_call(com.scanf, &args, "scanf")?;
+                    .build_direct_call(com.symbol.scanf, &args, "scanf")?;
             }
         }
 

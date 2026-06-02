@@ -1,10 +1,10 @@
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, mem, path::Path};
 
 use anyhow::{Context as _, Result};
 use inkwell::{
     builder::Builder,
     context::Context,
-    module::Module,
+    module::{Linkage, Module},
     targets::{Target, TargetMachine, TargetTriple},
     types::BasicTypeEnum,
     values::{FunctionValue, StructValue},
@@ -16,7 +16,7 @@ use crate::{
         expr::compile_expr,
         tys::{LLVMFunc, LLVMVarStore},
     },
-    cst::{VisitAble, Visitor, tys::*},
+    cst::tys::*,
 };
 
 use super::decl;
@@ -25,11 +25,16 @@ pub struct Compiler<'a, 'ctx> {
     pub llvm: LLVMCtx<'a, 'ctx>,
     pub var_store: LLVMVarStore<'ctx>,
     pub type_store: TypeStore,
+    pub(super) symbol: Symbol<'ctx>,
     pub(super) current_func: Option<LLVMFunc<'ctx>>,
-    pub(super) printf: FunctionValue<'ctx>,
-    pub(super) scanf: FunctionValue<'ctx>,
-    pub(super) power_both_side: FunctionValue<'ctx>,
     pub(super) target_machine: TargetMachine,
+}
+
+pub(super) struct Symbol<'ctx> {
+    pub printf: FunctionValue<'ctx>,
+    pub scanf: FunctionValue<'ctx>,
+    pub power_both_side: FunctionValue<'ctx>,
+    pub ctors: Vec<FunctionValue<'ctx>>,
 }
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
@@ -60,20 +65,53 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let target_machine = target
             .create_target_machine_from_options(&triple, Default::default())
             .context("Cannot create tuple")?;
+        let symbol = Symbol {
+            printf,
+            scanf,
+            power_both_side,
+            ctors: vec![],
+        };
         Ok(Self {
             llvm,
             var_store,
             current_func: None,
             type_store,
-            printf,
-            scanf,
-            power_both_side,
             target_machine,
+            symbol,
         })
     }
 
     pub fn compile(&mut self, n: &'a File, path: impl AsRef<Path>) -> Result<()> {
         self.compile_file(n)?;
+
+        // ctors
+        let i32_ty = self.llvm.context.i32_type();
+        let ptr_ty = self.llvm.context.ptr_type(Default::default());
+        let ctor_entry_type = self
+            .llvm
+            .context
+            .struct_type(&[i32_ty.into(), ptr_ty.into(), ptr_ty.into()], false);
+        let array_ty = ctor_entry_type.array_type(self.symbol.ctors.len() as u32);
+
+        let ctor_records: Vec<_> = mem::take(&mut self.symbol.ctors)
+            .into_iter()
+            .map(|func| {
+                ctor_entry_type.const_named_struct(&[
+                    i32_ty.const_int(65535, false).into(),
+                    func.as_global_value().as_pointer_value().into(),
+                    ptr_ty.const_null().into(),
+                ])
+            })
+            .collect();
+        let array_value = ctor_entry_type.const_array(&ctor_records);
+
+        let global_ctors = self
+            .llvm
+            .module
+            .add_global(array_ty, None, "llvm.global_ctors");
+        global_ctors.set_linkage(Linkage::Appending);
+        global_ctors.set_initializer(&array_value);
+
         self.llvm.module.print_to_file(path).unwrap();
         Ok(())
     }
@@ -110,7 +148,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         match n {
             Decl::Var(decl_var) => decl::compile_decl_var(self, decl_var),
             Decl::Func(decl_func) => decl::compile_decl_func(self, decl_func),
-            Decl::Alias(decl_alias) => Ok(()),
+            Decl::Alias(_) => Ok(()),
         }
     }
 
