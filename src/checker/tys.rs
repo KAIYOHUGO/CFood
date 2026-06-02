@@ -130,10 +130,19 @@ impl TypeStore {
     }
 }
 
-#[derive(Clone, Debug, Is, PartialEq, Eq)]
+#[derive(Clone, Debug, Is, Eq)]
 pub enum AType {
     CType(CType),
     Unknown(usize),
+}
+
+impl PartialEq for AType {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::CType(l0), Self::CType(r0)) => l0 == r0,
+            (Self::Unknown(_), _) | (_, Self::Unknown(_)) => true,
+        }
+    }
 }
 
 impl Display for AType {
@@ -187,16 +196,21 @@ impl Display for CType {
             }
         });
 
-        let inputs = inputs
-            .is_empty()
-            .then_some(".".to_owned())
-            .unwrap_or(inputs);
         let outputs = outputs
             .is_empty()
             .then_some(".".to_owned())
             .unwrap_or(outputs);
+        if inputs.is_empty() {
+            write!(f, "{outputs}")?;
+        } else {
+            let inputs = inputs
+                .is_empty()
+                .then_some(".".to_owned())
+                .unwrap_or(inputs);
 
-        write!(f, "{inputs} -> {outputs}")?;
+            write!(f, "{inputs} -> {outputs}")?;
+        }
+
         Ok(())
     }
 }

@@ -18,7 +18,7 @@ pub struct CFoodErrorLabel {
 }
 
 impl CFoodError {
-    pub fn to_diagnostic(self, store: SpanStore) -> MietteDiagnostic {
+    pub fn to_diagnostic(self, store: &SpanStore) -> MietteDiagnostic {
         let mut diag = MietteDiagnostic::new(self.message);
         diag.help = self.help;
 
@@ -26,8 +26,7 @@ impl CFoodError {
             let Some(span) = store.get(&label.cst_id) else {
                 continue;
             };
-
-            diag = diag.with_label(LabeledSpan::new_with_span(
+            diag = diag.and_label(LabeledSpan::new_with_span(
                 label.label,
                 span.start.offset..span.end.offset,
             ));

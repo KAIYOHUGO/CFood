@@ -134,8 +134,19 @@ impl<'a> TLT<'a> {
                             let alias = TLTAlias { prims };
                             self.alias.insert(&decl_alias.name.inner, alias);
                         }
-                        // FIXME: add diag
-                        Err(_) => {}
+                        Err(_) => {
+                            self.errors.push(CFoodError {
+                                message: "Invalid alias declaration".to_owned(),
+                                help: Some(
+                                    "Ensure all aliases exist and avoid cyclic alias chains."
+                                        .to_owned(),
+                                ),
+                                labels: vec![CFoodErrorLabel {
+                                    cst_id: decl_alias.id,
+                                    label: Some("cannot resolve alias types here".to_owned()),
+                                }],
+                            });
+                        }
                     }
                 }
                 _ => {}
@@ -181,14 +192,45 @@ impl<'a> TLT<'a> {
         });
 
         let block = self.block.last_mut().unwrap();
-        block.insert(&n.name.inner, (n.id, id));
+        let prev_declare = block.insert(&n.name.inner, (n.id, id));
+        if let Some((cst_id, _)) = prev_declare {
+            self.errors.push(CFoodError {
+                message: "Redeclaration of variable".to_owned(),
+                labels: vec![
+                    CFoodErrorLabel {
+                        cst_id: cst_id,
+                        label: Some(format!("first variable declared here")),
+                    },
+                    CFoodErrorLabel {
+                        cst_id: n.id,
+                        label: Some(format!("redeclared here")),
+                    },
+                ],
+                ..Default::default()
+            });
+        }
         if let Some(expr) = &n.init {
             self.check_expr(expr)?;
             let expr_id = self.type_store.get_type_id(expr.mark()).unwrap();
             if !self.type_store.is_eq(id, expr_id) {
-                // FIXME: remove panic
-                // and add diag
-                panic!()
+                let declared = self.type_store.get(id).to_string();
+                let actual = self.type_store.get(expr_id).to_string();
+                self.errors.push(CFoodError {
+                    message: "Type mismatch in variable initialization".to_owned(),
+                    help: Some(
+                        "Change the initializer or declared type so both types match.".to_owned(),
+                    ),
+                    labels: vec![
+                        CFoodErrorLabel {
+                            cst_id: n.ty.mark(),
+                            label: Some(format!("declared as `{declared}`")),
+                        },
+                        CFoodErrorLabel {
+                            cst_id: expr.mark(),
+                            label: Some(format!("initializer has type `{actual}`")),
+                        },
+                    ],
+                });
             }
         }
         Ok(())
@@ -268,13 +310,21 @@ impl<'a> TLT<'a> {
 
         let cond = self
             .type_store
-            .get(self.type_store.get_type_id(n.cond.mark()).unwrap());
+            .get(self.type_store.get_type_id(n.cond.mark()).unwrap())
+            .clone();
         let is_bool = cond.as_c_type().is_some_and(|x| {
             x.inputs.is_empty() && x.outputs.len() == 1 && x.outputs[0].kind.is_bool()
         });
 
         if !is_bool {
-            // FIXME: add diag
+            self.errors.push(CFoodError {
+                message: "Branch condition must be bool".to_owned(),
+                help: Some("Use a comparison or a boolean expression in condition.".to_owned()),
+                labels: vec![CFoodErrorLabel {
+                    cst_id: n.cond.mark(),
+                    label: Some(format!("this condition has type `{cond}`")),
+                }],
+            });
         }
 
         Ok(())
@@ -312,33 +362,113 @@ impl<'a> TLT<'a> {
             .type_store
             .get(self.type_store.get_type_id(n.rhs.mark()).unwrap());
 
-        match (lhs, rhs) {
+        match (&lhs, &rhs) {
             (AType::CType(lhs), AType::CType(rhs)) => {
                 if !lhs.inputs.is_empty() || !rhs.inputs.is_empty() {
-                    // FIXME: add diag
-                    // about higher order...
+                    self.errors.push(CFoodError {
+                        message: "Invalid operands for binary operator".to_owned(),
+                        help: Some(
+                            "Apply functions first so each operand is a concrete value.".to_owned(),
+                        ),
+                        labels: vec![
+                            CFoodErrorLabel {
+                                cst_id: n.lhs.mark(),
+                                label: Some(format!("left operand has type `{lhs}`")),
+                            },
+                            CFoodErrorLabel {
+                                cst_id: n.rhs.mark(),
+                                label: Some(format!("right operand has type `{rhs}`")),
+                            },
+                        ],
+                    });
 
                     self.type_store.unknown(n.id);
                     return Ok(());
                 }
                 if lhs.outputs.len() != 1 || rhs.outputs.len() != 1 {
-                    // FIXME: add diag
-                    // about apply list
+                    self.errors.push(CFoodError {
+                        message: "Invalid operands for binary operator".to_owned(),
+                        help: Some(
+                            "Binary operators require exactly one output value on each side."
+                                .to_owned(),
+                        ),
+                        labels: vec![
+                            CFoodErrorLabel {
+                                cst_id: n.lhs.mark(),
+                                label: Some(format!("left operand has type `{lhs}`")),
+                            },
+                            CFoodErrorLabel {
+                                cst_id: n.rhs.mark(),
+                                label: Some(format!("right operand has type `{rhs}`")),
+                            },
+                        ],
+                    });
 
                     self.type_store.unknown(n.id);
                     return Ok(());
                 }
 
                 if lhs.outputs[0] != rhs.outputs[0] {
-                    // FIXME: add diag
-                    // about not the same type
+                    let lhs_ty = lhs.outputs[0].to_string();
+                    let rhs_ty = rhs.outputs[0].to_string();
+                    self.errors.push(CFoodError {
+                        message: "Binary operands must have the same type".to_owned(),
+                        help: Some(
+                            "Convert one side so both operands use the same type.".to_owned(),
+                        ),
+                        labels: vec![
+                            CFoodErrorLabel {
+                                cst_id: n.lhs.mark(),
+                                label: Some(format!("left operand is `{lhs_ty}`")),
+                            },
+                            CFoodErrorLabel {
+                                cst_id: n.rhs.mark(),
+                                label: Some(format!("right operand is `{rhs_ty}`")),
+                            },
+                        ],
+                    });
                     self.type_store.unknown(n.id);
                     return Ok(());
                 }
 
                 let kind = match n.op {
                     Op::Add(_) | Op::Sub(_) | Op::Mul(_) | Op::Div(_) | Op::OpMod(_) => {
-                        lhs.outputs[0].kind
+                        let kind = lhs.outputs[0].kind;
+
+                        if !matches!(kind, PrimKind::Int | PrimKind::Float) {
+                            self.errors.push(CFoodError {
+                                message: "Invalid operands for binary operator".to_owned(),
+                                help: Some(
+                                    "Use int/float operands on both sides of arithmetic operator."
+                                        .to_owned(),
+                                ),
+                                labels: vec![
+                                    CFoodErrorLabel {
+                                        cst_id: n.op.mark(),
+                                        label: Some("arthmetic operator is used here".to_owned()),
+                                    },
+                                    CFoodErrorLabel {
+                                        cst_id: n.lhs.mark(),
+                                        label: Some(format!(
+                                            "operand type is `{}`",
+                                            lhs.outputs[0]
+                                        )),
+                                    },
+                                    CFoodErrorLabel {
+                                        cst_id: n.rhs.mark(),
+                                        label: Some(format!(
+                                            "operand type is `{}`",
+                                            lhs.outputs[0]
+                                        )),
+                                    },
+                                ],
+                            });
+
+                            self.type_store.unknown(n.id);
+                            return Ok(());
+                        }
+
+                        kind
                     }
 
                     Op::Ne(_) | Op::Eq(_) | Op::Lt(_) | Op::Gt(_) | Op::Le(_) | Op::Ge(_) => {
@@ -347,8 +477,30 @@ impl<'a> TLT<'a> {
 
                     Op::PEO(_) => {
                         if !lhs.outputs[0].kind.is_float() {
-                            // FIXME: add diag
-                            // about not the same type
+                            self.errors.push(CFoodError {
+                                message: "Invalid operands for operator ##".to_owned(),
+                                help: Some("Use float operands on both sides of `##`.".to_owned()),
+                                labels: vec![
+                                    CFoodErrorLabel {
+                                        cst_id: n.op.mark(),
+                                        label: Some("`##` is used here".to_owned()),
+                                    },
+                                    CFoodErrorLabel {
+                                        cst_id: n.lhs.mark(),
+                                        label: Some(format!(
+                                            "operand type is `{}`",
+                                            lhs.outputs[0]
+                                        )),
+                                    },
+                                    CFoodErrorLabel {
+                                        cst_id: n.rhs.mark(),
+                                        label: Some(format!(
+                                            "operand type is `{}`",
+                                            lhs.outputs[0]
+                                        )),
+                                    },
+                                ],
+                            });
                             self.type_store.unknown(n.id);
                             return Ok(());
                         }
@@ -372,7 +524,22 @@ impl<'a> TLT<'a> {
         let rhs = self.type_store.get_type_id(n.rhs.mark()).unwrap();
         let res = self.type_store.is_eq(var, rhs);
         if !res {
-            // FIXME: Add diag
+            let lhs = self.type_store.get(var).to_string();
+            let rhs = self.type_store.get(rhs).to_string();
+            self.errors.push(CFoodError {
+                message: "Type mismatch in assignment".to_owned(),
+                help: Some("Assign a value with the same type as the variable.".to_owned()),
+                labels: vec![
+                    CFoodErrorLabel {
+                        cst_id: n.var.mark(),
+                        label: Some(format!("variable has type `{lhs}`")),
+                    },
+                    CFoodErrorLabel {
+                        cst_id: n.rhs.mark(),
+                        label: Some(format!("assigned value has type `{rhs}`")),
+                    },
+                ],
+            });
         }
 
         let mut atype = self.type_store.get(var).clone();
@@ -389,8 +556,19 @@ impl<'a> TLT<'a> {
         self.check_expr(&n.rhs)?;
         let lhs = self.type_store.get_type_id(n.lhs.mark()).unwrap();
         let rhs = self.type_store.get_type_id(n.rhs.mark()).unwrap();
-        // FIXME: Add diag
-        let _res = self.type_store.apply(lhs, rhs, n.id).unwrap();
+        let res = self.type_store.apply(lhs, rhs, n.id);
+        match res {
+            Ok(_) => {}
+            Err(mut err) => {
+                if err.help.is_none() {
+                    err.help = Some(
+                        "Make sure the called value accepts the argument type in order.".to_owned(),
+                    );
+                }
+                self.errors.push(err);
+                self.type_store.unknown(n.id);
+            }
+        }
 
         Ok(())
     }
@@ -405,7 +583,25 @@ impl<'a> TLT<'a> {
                     .is_some_and(|x| x.kind == PrimKind::ConStr)
         });
         if !is_vaild {
-            // FIXME: Add diag
+            let (message, help) = match n.lhs {
+                Magic::Printf(_) => (
+                    "Invalid argument for printf",
+                    "Pass a string expression to printf.",
+                ),
+                Magic::Scanf(_) => (
+                    "Invalid argument for scanf",
+                    "Pass a string expression to scanf.",
+                ),
+            };
+
+            self.errors.push(CFoodError {
+                message: message.to_owned(),
+                help: Some(help.to_owned()),
+                labels: vec![CFoodErrorLabel {
+                    cst_id: n.rhs.mark(),
+                    label: Some(format!("argument has type `{rhs}`")),
+                }],
+            });
         }
 
         self.type_store.void(n.id);
@@ -434,7 +630,14 @@ impl<'a> TLT<'a> {
                 return Ok(());
             }
         }
-        // FIXME: Add diag
+        self.errors.push(CFoodError {
+            message: "Name not found".to_owned(),
+            help: Some("Declare this variable in scope before using it.".to_owned()),
+            labels: vec![CFoodErrorLabel {
+                cst_id: n.id,
+                label: Some(format!("`{}` is not defined", n.name.inner)),
+            }],
+        });
         self.type_store.unknown(n.id);
         Ok(())
     }
@@ -448,7 +651,17 @@ impl<'a> TLT<'a> {
                 return Ok(());
             }
         }
-        // FIXME: Add diag
+        self.errors.push(CFoodError {
+            message: "Name not found".to_owned(),
+            help: Some("Declare this variable in scope before taking its reference.".to_owned()),
+            labels: vec![CFoodErrorLabel {
+                cst_id: n.id,
+                label: Some(format!(
+                    "cannot reference undefined name `{}`",
+                    n.name.inner
+                )),
+            }],
+        });
         Ok(())
     }
 }
