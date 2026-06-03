@@ -1,3 +1,6 @@
+mod decl;
+mod expr;
+mod stmt;
 mod tlt;
 mod tys;
 

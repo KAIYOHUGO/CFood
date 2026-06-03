@@ -157,10 +157,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         match n {
             Stmt::DeclVar(decl_var) => decl::compile_decl_var(self, decl_var),
             Stmt::Branch(stmt_branch) => stmt::compile_stmt_branch(self, stmt_branch),
-            Stmt::Iter(stmt_iter) => todo!(),
+            Stmt::Iter(stmt_iter) => stmt::compile_stmt_iter(self, stmt_iter),
             Stmt::Block(stmt_block) => self.compile_stmt_block(stmt_block),
             Stmt::AutoLet(stmt_let) => todo!(),
-            Stmt::Ret(stmt_ret) => todo!(),
+            Stmt::Ret(stmt_ret) => stmt::compile_stmt_ret(self, stmt_ret),
             Stmt::Expr(expr) => self.compile_expr(expr).map(|_| ()),
         }
     }

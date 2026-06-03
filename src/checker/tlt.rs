@@ -1,3 +1,4 @@
+use anyhow::Result;
 use std::collections::BTreeMap;
 
 use crate::{
@@ -12,7 +13,7 @@ pub struct TLT<'a> {
     alias: BTreeMap<&'a str, TLTAlias>,
 
     // cst_id, type_id
-    block: Vec<BTreeMap<&'a str, (usize, TypeId)>>,
+    pub(super) block: Vec<BTreeMap<&'a str, (usize, TypeId)>>,
     // cst_id, cst_id
     pub refer_map: BTreeMap<usize, usize>,
 
@@ -45,9 +46,8 @@ impl<'a> ExtraCstInfo for TLT<'a> {
     }
 }
 
-type EResult = Result<(), ()>;
 impl<'a> TLT<'a> {
-    pub fn check_file(&mut self, n: &'a File) -> EResult {
+    pub fn check_file<'b: 'a>(&mut self, n: &'b File) -> Result<()> {
         self.hoist(&n.decls);
         for decl in &n.decls {
             match decl {
@@ -63,7 +63,7 @@ impl<'a> TLT<'a> {
         Ok(())
     }
 
-    fn hoist(&mut self, n: &'a Vec<Decl>) {
+    fn hoist<'b: 'a>(&mut self, n: &'b Vec<Decl>) {
         // Hoisting
         let max_path = n.len();
         let mut lookup_alias = BTreeMap::new();
@@ -181,7 +181,7 @@ impl<'a> TLT<'a> {
         }
     }
 
-    fn check_decl_var(&mut self, n: &'a DeclVar) -> EResult {
+    pub(super) fn check_decl_var<'b: 'a>(&mut self, n: &'b DeclVar) -> Result<()> {
         let mut outputs = self.normaliaze_kind(&n.ty).unwrap();
         outputs.reverse();
 
@@ -237,7 +237,7 @@ impl<'a> TLT<'a> {
         Ok(())
     }
 
-    fn check_decl_func(&mut self, n: &'a DeclFunc) -> EResult {
+    fn check_decl_func<'b: 'a>(&mut self, n: &'b DeclFunc) -> Result<()> {
         let mut params = vec![];
         for param in &n.params {
             let mut outputs = self.normaliaze_kind(&param.ty).unwrap();
@@ -284,382 +284,22 @@ impl<'a> TLT<'a> {
         for (id, param) in params.into_iter().zip(&n.params) {
             block.insert(&param.name.inner, (param.id, id));
         }
-        block.insert("return", (usize::MAX, ret));
+        block.insert("return", (n.ret.mark(), ret));
         self.check_stmt_block(&n.block)?;
 
         self.block.pop();
         Ok(())
     }
 
-    fn check_stmt(&mut self, n: &'a Stmt) -> EResult {
-        match n {
-            Stmt::DeclVar(decl_var) => self.check_decl_var(decl_var)?,
-            Stmt::Branch(stmt_branch) => self.check_stmt_branch(stmt_branch)?,
-            Stmt::Iter(stmt_iter) => todo!(),
-            Stmt::Block(stmt_block) => self.check_stmt_block(stmt_block)?,
-            Stmt::AutoLet(stmt_let) => todo!(),
-            Stmt::Ret(stmt_ret) => todo!(),
-            Stmt::Expr(expr) => self.check_expr(expr)?,
-        }
-        Ok(())
+    pub(super) fn check_stmt<'b: 'a>(&mut self, n: &'b Stmt) -> Result<()> {
+        super::stmt::check_stmt(self, n)
     }
 
-    fn check_stmt_branch(&mut self, n: &'a StmtBranch) -> EResult {
-        self.check_expr(&n.cond)?;
-        n.then_branch.as_ref().map(|x| self.check_stmt(&*x));
-        n.else_branch.as_ref().map(|x| self.check_stmt(&*x));
-
-        let cond = self
-            .type_store
-            .get(self.type_store.get_type_id(n.cond.mark()).unwrap())
-            .clone();
-        let is_bool = cond.as_c_type().is_some_and(|x| {
-            x.inputs.is_empty() && x.outputs.len() == 1 && x.outputs[0].kind.is_bool()
-        });
-
-        if !is_bool {
-            self.errors.push(CFoodError {
-                message: "Branch condition must be bool".to_owned(),
-                help: Some("Use a comparison or a boolean expression in condition.".to_owned()),
-                labels: vec![CFoodErrorLabel {
-                    cst_id: n.cond.mark(),
-                    label: Some(format!("this condition has type `{cond}`")),
-                }],
-            });
-        }
-
-        Ok(())
-    }
-    fn check_stmt_block(&mut self, n: &'a StmtBlock) -> EResult {
-        self.block.push(Default::default());
-
-        for stmt in &n.stmts {
-            self.check_stmt(stmt)?;
-        }
-
-        self.block.pop();
-        Ok(())
+    pub(super) fn check_stmt_block<'b: 'a>(&mut self, n: &'b StmtBlock) -> Result<()> {
+        super::stmt::check_stmt_block(self, n)
     }
 
-    fn check_expr(&mut self, n: &'a Expr) -> EResult {
-        match n {
-            Expr::Binary(expr_binary) => self.check_expr_binary(expr_binary),
-            Expr::Assign(expr_assign) => self.check_expr_assign(expr_assign),
-            Expr::Call(expr_call) => self.check_expr_call(expr_call),
-            Expr::Magic(expr_magic) => self.check_expr_magic(expr_magic),
-            Expr::Lit(lit) => self.check_lit(lit),
-            Expr::Var(expr_var) => self.check_expr_var(expr_var),
-            Expr::Refer(expr_refer) => self.check_expr_refer(expr_refer),
-        }
-    }
-
-    fn check_expr_binary(&mut self, n: &'a ExprBinary) -> EResult {
-        self.check_expr(&n.lhs)?;
-        self.check_expr(&n.rhs)?;
-        let lhs = self
-            .type_store
-            .get(self.type_store.get_type_id(n.lhs.mark()).unwrap());
-        let rhs = self
-            .type_store
-            .get(self.type_store.get_type_id(n.rhs.mark()).unwrap());
-
-        match (&lhs, &rhs) {
-            (AType::CType(lhs), AType::CType(rhs)) => {
-                if !lhs.inputs.is_empty() || !rhs.inputs.is_empty() {
-                    self.errors.push(CFoodError {
-                        message: "Invalid operands for binary operator".to_owned(),
-                        help: Some(
-                            "Apply functions first so each operand is a concrete value.".to_owned(),
-                        ),
-                        labels: vec![
-                            CFoodErrorLabel {
-                                cst_id: n.lhs.mark(),
-                                label: Some(format!("left operand has type `{lhs}`")),
-                            },
-                            CFoodErrorLabel {
-                                cst_id: n.rhs.mark(),
-                                label: Some(format!("right operand has type `{rhs}`")),
-                            },
-                        ],
-                    });
-
-                    self.type_store.unknown(n.id);
-                    return Ok(());
-                }
-                if lhs.outputs.len() != 1 || rhs.outputs.len() != 1 {
-                    self.errors.push(CFoodError {
-                        message: "Invalid operands for binary operator".to_owned(),
-                        help: Some(
-                            "Binary operators require exactly one output value on each side."
-                                .to_owned(),
-                        ),
-                        labels: vec![
-                            CFoodErrorLabel {
-                                cst_id: n.lhs.mark(),
-                                label: Some(format!("left operand has type `{lhs}`")),
-                            },
-                            CFoodErrorLabel {
-                                cst_id: n.rhs.mark(),
-                                label: Some(format!("right operand has type `{rhs}`")),
-                            },
-                        ],
-                    });
-
-                    self.type_store.unknown(n.id);
-                    return Ok(());
-                }
-
-                if lhs.outputs[0] != rhs.outputs[0] {
-                    let lhs_ty = lhs.outputs[0].to_string();
-                    let rhs_ty = rhs.outputs[0].to_string();
-                    self.errors.push(CFoodError {
-                        message: "Binary operands must have the same type".to_owned(),
-                        help: Some(
-                            "Convert one side so both operands use the same type.".to_owned(),
-                        ),
-                        labels: vec![
-                            CFoodErrorLabel {
-                                cst_id: n.lhs.mark(),
-                                label: Some(format!("left operand is `{lhs_ty}`")),
-                            },
-                            CFoodErrorLabel {
-                                cst_id: n.rhs.mark(),
-                                label: Some(format!("right operand is `{rhs_ty}`")),
-                            },
-                        ],
-                    });
-                    self.type_store.unknown(n.id);
-                    return Ok(());
-                }
-
-                let kind = match n.op {
-                    Op::Add(_) | Op::Sub(_) | Op::Mul(_) | Op::Div(_) | Op::OpMod(_) => {
-                        let kind = lhs.outputs[0].kind;
-
-                        if !matches!(kind, PrimKind::Int | PrimKind::Float) {
-                            self.errors.push(CFoodError {
-                                message: "Invalid operands for binary operator".to_owned(),
-                                help: Some(
-                                    "Use int/float operands on both sides of arithmetic operator."
-                                        .to_owned(),
-                                ),
-                                labels: vec![
-                                    CFoodErrorLabel {
-                                        cst_id: n.op.mark(),
-                                        label: Some("arthmetic operator is used here".to_owned()),
-                                    },
-                                    CFoodErrorLabel {
-                                        cst_id: n.lhs.mark(),
-                                        label: Some(format!(
-                                            "operand type is `{}`",
-                                            lhs.outputs[0]
-                                        )),
-                                    },
-                                    CFoodErrorLabel {
-                                        cst_id: n.rhs.mark(),
-                                        label: Some(format!(
-                                            "operand type is `{}`",
-                                            lhs.outputs[0]
-                                        )),
-                                    },
-                                ],
-                            });
-
-                            self.type_store.unknown(n.id);
-                            return Ok(());
-                        }
-
-                        kind
-                    }
-
-                    Op::Ne(_) | Op::Eq(_) | Op::Lt(_) | Op::Gt(_) | Op::Le(_) | Op::Ge(_) => {
-                        PrimKind::Bool
-                    }
-
-                    Op::PEO(_) => {
-                        if !lhs.outputs[0].kind.is_float() {
-                            self.errors.push(CFoodError {
-                                message: "Invalid operands for operator ##".to_owned(),
-                                help: Some("Use float operands on both sides of `##`.".to_owned()),
-                                labels: vec![
-                                    CFoodErrorLabel {
-                                        cst_id: n.op.mark(),
-                                        label: Some("`##` is used here".to_owned()),
-                                    },
-                                    CFoodErrorLabel {
-                                        cst_id: n.lhs.mark(),
-                                        label: Some(format!(
-                                            "operand type is `{}`",
-                                            lhs.outputs[0]
-                                        )),
-                                    },
-                                    CFoodErrorLabel {
-                                        cst_id: n.rhs.mark(),
-                                        label: Some(format!(
-                                            "operand type is `{}`",
-                                            lhs.outputs[0]
-                                        )),
-                                    },
-                                ],
-                            });
-                            self.type_store.unknown(n.id);
-                            return Ok(());
-                        }
-                        PrimKind::Float
-                    }
-                };
-
-                self.type_store.prim(kind, n.id);
-            }
-            _ => {
-                self.type_store.unknown(n.id);
-            }
-        }
-
-        Ok(())
-    }
-    fn check_expr_assign(&mut self, n: &'a ExprAssign) -> EResult {
-        self.check_expr_var(&n.var)?;
-        self.check_expr(&n.rhs)?;
-        let var = self.type_store.get_type_id(n.var.mark()).unwrap();
-        let rhs = self.type_store.get_type_id(n.rhs.mark()).unwrap();
-        let res = self.type_store.is_eq(var, rhs);
-        if !res {
-            let lhs = self.type_store.get(var).to_string();
-            let rhs = self.type_store.get(rhs).to_string();
-            self.errors.push(CFoodError {
-                message: "Type mismatch in assignment".to_owned(),
-                help: Some("Assign a value with the same type as the variable.".to_owned()),
-                labels: vec![
-                    CFoodErrorLabel {
-                        cst_id: n.var.mark(),
-                        label: Some(format!("variable has type `{lhs}`")),
-                    },
-                    CFoodErrorLabel {
-                        cst_id: n.rhs.mark(),
-                        label: Some(format!("assigned value has type `{rhs}`")),
-                    },
-                ],
-            });
-        }
-
-        let mut atype = self.type_store.get(var).clone();
-        match &mut atype {
-            AType::CType(ctype) => ctype.cst_id = n.id,
-            AType::Unknown(id) => *id = n.id,
-        }
-        self.type_store.a_type(atype);
-
-        Ok(())
-    }
-    fn check_expr_call(&mut self, n: &'a ExprCall) -> EResult {
-        self.check_expr(&n.lhs)?;
-        self.check_expr(&n.rhs)?;
-        let lhs = self.type_store.get_type_id(n.lhs.mark()).unwrap();
-        let rhs = self.type_store.get_type_id(n.rhs.mark()).unwrap();
-        let res = self.type_store.apply(lhs, rhs, n.id);
-        match res {
-            Ok(_) => {}
-            Err(mut err) => {
-                if err.help.is_none() {
-                    err.help = Some(
-                        "Make sure the called value accepts the argument type in order.".to_owned(),
-                    );
-                }
-                self.errors.push(err);
-                self.type_store.unknown(n.id);
-            }
-        }
-
-        Ok(())
-    }
-    fn check_expr_magic(&mut self, n: &'a ExprMagic) -> EResult {
-        self.check_expr(&n.rhs)?;
-        let rhs = self.type_store.get_type_id(n.rhs.mark()).unwrap();
-        let rhs = self.type_store.get(rhs);
-        let is_vaild = rhs.as_c_type().is_some_and(|x| {
-            x.inputs.is_empty() && x.outputs.last().is_some_and(|x| x.kind == PrimKind::ConStr)
-        });
-        if !is_vaild {
-            let (message, help) = match n.lhs {
-                Magic::Printf(_) => (
-                    "Invalid argument for printf",
-                    "Pass a string expression to printf.",
-                ),
-                Magic::Scanf(_) => (
-                    "Invalid argument for scanf",
-                    "Pass a string expression to scanf.",
-                ),
-            };
-
-            self.errors.push(CFoodError {
-                message: message.to_owned(),
-                help: Some(help.to_owned()),
-                labels: vec![CFoodErrorLabel {
-                    cst_id: n.rhs.mark(),
-                    label: Some(format!("argument has type `{rhs}`")),
-                }],
-            });
-        }
-
-        self.type_store.prim(PrimKind::Int, n.id);
-
-        Ok(())
-    }
-    fn check_lit(&mut self, n: &'a ExprLit) -> EResult {
-        match n {
-            ExprLit::Int(token) => self.type_store.prim(PrimKind::Int, token.id),
-            ExprLit::Float(token) => self.type_store.prim(PrimKind::Float, token.id),
-            ExprLit::ConStr(token) => self.type_store.prim(PrimKind::ConStr, token.id),
-        };
-        Ok(())
-    }
-    fn check_expr_var(&mut self, n: &'a ExprVar) -> EResult {
-        for scope in self.block.iter().rev() {
-            if let Some((cst_id, id)) = scope.get(n.name.inner.as_str()) {
-                let mut a_type = self.type_store.get(*id).clone();
-                match &mut a_type {
-                    AType::CType(ctype) => ctype.cst_id = n.id,
-                    AType::Unknown(id) => *id = n.id,
-                }
-                self.type_store.a_type(a_type);
-                self.refer_map.insert(n.id, *cst_id);
-
-                return Ok(());
-            }
-        }
-        self.errors.push(CFoodError {
-            message: "Name not found".to_owned(),
-            help: Some("Declare this variable in scope before using it.".to_owned()),
-            labels: vec![CFoodErrorLabel {
-                cst_id: n.id,
-                label: Some(format!("`{}` is not defined", n.name.inner)),
-            }],
-        });
-        self.type_store.unknown(n.id);
-        Ok(())
-    }
-
-    fn check_expr_refer(&mut self, n: &'a ExprRefer) -> EResult {
-        self.type_store.prim(PrimKind::Int, n.id);
-        for scope in self.block.iter().rev() {
-            if let Some((cst_id, _)) = scope.get(n.name.inner.as_str()) {
-                self.refer_map.insert(n.id, *cst_id);
-
-                return Ok(());
-            }
-        }
-        self.errors.push(CFoodError {
-            message: "Name not found".to_owned(),
-            help: Some("Declare this variable in scope before taking its reference.".to_owned()),
-            labels: vec![CFoodErrorLabel {
-                cst_id: n.id,
-                label: Some(format!(
-                    "cannot reference undefined name `{}`",
-                    n.name.inner
-                )),
-            }],
-        });
-        Ok(())
+    pub(super) fn check_expr(&mut self, n: &Expr) -> Result<()> {
+        super::expr::check_expr(self, n)
     }
 }
