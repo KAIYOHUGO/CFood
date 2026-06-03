@@ -66,8 +66,8 @@ impl Drop for PanicHandler {
             return;
         }
 
-        println!("Oh no you got a ICE");
-        println!("ICE = Internal Compiler Error");
-        println!("{ICE_MESSAGE}")
+        eprintln!("Oh no you got a ICE");
+        eprintln!("ICE = Internal Compiler Error");
+        eprintln!("{ICE_MESSAGE}")
     }
 }
