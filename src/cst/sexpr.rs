@@ -21,7 +21,7 @@ impl<'a> CstToSexpr<'a> {
     }
 
     fn atom_str(&self, s: &Token<String>) -> String {
-        format!("{} {} \"{}\"", self.span(s), self.extra_marked(s), s.inner)
+        format!("{} {} {:?}", self.span(s), self.extra_marked(s), s.inner)
     }
 
     fn op_name(op: &Op) -> &'static str {
@@ -310,6 +310,18 @@ impl<'a> Visitor for CstToSexpr<'a> {
             self.visit_expr_var(&n.var)?,
             self.visit_expr(&n.rhs)?
         ))
+    }
+
+    fn visit_expr(&mut self, n: &Expr) -> Result<Self::Res, Self::Error> {
+        match n {
+            Expr::Binary(x) => self.visit_expr_binary(x),
+            Expr::Assign(x) => self.visit_expr_assign(x),
+            Expr::Call(x) => self.visit_expr_call(x),
+            Expr::Magic(x) => self.visit_expr_magic(x),
+            Expr::Lit(x) => self.visit_lit(x),
+            Expr::Var(x) => self.visit_expr_var(x),
+            Expr::Refer(x) => self.visit_expr_refer(x),
+        }
     }
 
     fn visit_expr_var(&mut self, n: &ExprVar) -> Result<Self::Res, Self::Error> {
