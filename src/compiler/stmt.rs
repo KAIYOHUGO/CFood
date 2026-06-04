@@ -1,7 +1,32 @@
 use super::Compiler;
-use crate::cst::tys::{StmtBranch, StmtIter, StmtRet};
+use crate::{
+    compiler::tys::LLVMValue,
+    cst::tys::{StmtBranch, StmtIter, StmtLet, StmtRet},
+};
 use anyhow::Result;
 use inkwell::values::BasicValue;
+
+pub fn compile_stmt_let<'ctx>(com: &mut Compiler<'_, 'ctx>, n: &StmtLet) -> Result<()> {
+    let id = com.type_store.get_type_id(n.id).unwrap();
+    let ty = com.type_store.get(id).as_c_type().unwrap();
+
+    assert!(ty.inputs.is_empty());
+
+    let outputs: Vec<_> = ty
+        .outputs
+        .iter()
+        .map(|x| com.to_llvm_type(x.kind))
+        .collect();
+    let ty = com.llvm.context.struct_type(&outputs, false);
+    let value = com.llvm.builder.build_alloca(ty, &n.name.inner)?;
+    let ret = com.compile_expr(&n.init)?;
+    com.llvm.builder.build_store(value, ret)?;
+
+    let value = LLVMValue { id, ty, value };
+    com.var_store.new_value(n.id, value);
+
+    Ok(())
+}
 
 pub fn compile_stmt_ret<'ctx>(com: &mut Compiler<'_, 'ctx>, n: &StmtRet) -> Result<()> {
     if let Some(expr) = &n.expr {

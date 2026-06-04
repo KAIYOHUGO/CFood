@@ -1,19 +1,66 @@
 use crate::checker::TLT;
 use crate::cst::Marked;
-use crate::cst::tys::{Stmt, StmtBlock, StmtBranch, StmtIter, StmtRet};
+use crate::cst::tys::{Stmt, StmtBlock, StmtBranch, StmtIter, StmtLet, StmtRet};
 use crate::error::*;
 
 use anyhow::Result;
 
 pub fn check_stmt<'a, 'b: 'a>(tlt: &mut TLT<'a>, n: &'b Stmt) -> Result<()> {
     match n {
-        Stmt::DeclVar(decl_var) => tlt.check_decl_var(decl_var)?,
-        Stmt::Branch(stmt_branch) => check_stmt_branch(tlt, stmt_branch)?,
-        Stmt::Iter(stmt_iter) => check_stmt_iter(tlt, stmt_iter)?,
-        Stmt::Block(stmt_block) => check_stmt_block(tlt, stmt_block)?,
-        Stmt::AutoLet(stmt_let) => todo!(),
-        Stmt::Ret(stmt_ret) => check_stmt_ret(tlt, stmt_ret)?,
-        Stmt::Expr(expr) => tlt.check_expr(expr)?,
+        Stmt::DeclVar(decl_var) => tlt.check_decl_var(decl_var),
+        Stmt::Branch(stmt_branch) => check_stmt_branch(tlt, stmt_branch),
+        Stmt::Iter(stmt_iter) => check_stmt_iter(tlt, stmt_iter),
+        Stmt::Block(stmt_block) => check_stmt_block(tlt, stmt_block),
+        Stmt::AutoLet(stmt_let) => check_stmt_let(tlt, stmt_let),
+        Stmt::Ret(stmt_ret) => check_stmt_ret(tlt, stmt_ret),
+        Stmt::Expr(expr) => tlt.check_expr(expr),
+    }
+}
+
+pub fn check_stmt_let<'a, 'b: 'a>(tlt: &mut TLT<'a>, n: &'b StmtLet) -> Result<()> {
+    tlt.check_expr(&n.init)?;
+    let ty = tlt
+        .type_store
+        .get(tlt.type_store.get_type_id(n.init.mark()).unwrap());
+    let is_concrete = ty.as_c_type().is_some_and(|x| x.inputs.is_empty());
+
+    if !is_concrete {
+        tlt.errors.push(CFoodError {
+            message: "Let type must be a concrete value".to_owned(),
+            labels: vec![CFoodErrorLabel {
+                cst_id: n.init.mark(),
+                label: Some(format!("return value has type `{}`", ty)),
+            }],
+            ..Default::default()
+        });
+    }
+
+    let id = tlt.type_store.a_type({
+        let mut ty = ty.clone();
+        match &mut ty {
+            super::AType::CType(ctype) => ctype.cst_id = n.id,
+            super::AType::Unknown(id) => *id = n.id,
+        }
+        ty
+    });
+
+    let block = tlt.block.last_mut().unwrap();
+    let prev_declare = block.insert(&n.name.inner, (n.id, id));
+    if let Some((cst_id, _)) = prev_declare {
+        tlt.errors.push(CFoodError {
+            message: "Redeclaration of variable".to_owned(),
+            labels: vec![
+                CFoodErrorLabel {
+                    cst_id: cst_id,
+                    label: Some(format!("first variable declared here")),
+                },
+                CFoodErrorLabel {
+                    cst_id: n.id,
+                    label: Some(format!("redeclared here")),
+                },
+            ],
+            ..Default::default()
+        });
     }
     Ok(())
 }

@@ -159,7 +159,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Stmt::Branch(stmt_branch) => stmt::compile_stmt_branch(self, stmt_branch),
             Stmt::Iter(stmt_iter) => stmt::compile_stmt_iter(self, stmt_iter),
             Stmt::Block(stmt_block) => self.compile_stmt_block(stmt_block),
-            Stmt::AutoLet(stmt_let) => todo!(),
+            Stmt::AutoLet(stmt_let) => stmt::compile_stmt_let(self, stmt_let),
             Stmt::Ret(stmt_ret) => stmt::compile_stmt_ret(self, stmt_ret),
             Stmt::Expr(expr) => self.compile_expr(expr).map(|_| ()),
         }
