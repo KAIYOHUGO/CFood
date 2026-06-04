@@ -5,13 +5,14 @@ use cfood::{
     cst::{CstToSexpr, parse_to_cst, visitor::Visitor},
     error::PanicHandler,
 };
+use clap::Parser;
 use inkwell::{
     context::Context,
     targets::{InitializationConfig, Target},
 };
 use miette::Report;
 
-use std::{env, fs, io};
+use std::{fs, io, path::PathBuf};
 
 use anyhow::{Ok, Result, anyhow, bail};
 use dbt_antlr4::{
@@ -19,24 +20,38 @@ use dbt_antlr4::{
     token_stream::UnbufferedTokenStream, tree::NodeInner,
 };
 
+#[derive(Parser, Debug)]
+#[command(author, version, about)]
+struct Cli {
+    #[arg(value_name = "INPUT", required_unless_present = "stdin")]
+    input: Option<PathBuf>,
+
+    #[arg(long)]
+    stdin: bool,
+
+    #[arg(long)]
+    emit_cst: bool,
+
+    #[arg(short, long, default_value = "output.ll")]
+    output: PathBuf,
+
+    #[arg(long, default_value = "x86_64-linux-gnu")]
+    target: String,
+}
+
 fn main() -> Result<()> {
     miette::set_panic_hook();
     let _handler = PanicHandler;
+    let cli = Cli::parse();
 
-    let mut args = env::args().skip(1);
-    let pretty = env::var("PRETTY")
-        .map(|x| !x.is_empty())
-        .unwrap_or_default();
-    let stdin = env::var("STDIN").map(|x| !x.is_empty()).unwrap_or_default();
-
-    let data = if stdin {
+    let data = if cli.stdin {
         io::read_to_string(io::stdin())?
     } else {
-        let input = args.next().ok_or_else(|| anyhow!("You need pass file!"))?;
+        let input = cli.input.ok_or_else(|| anyhow!("You need pass file!"))?;
         fs::read_to_string(input)?
     };
 
-    Target::initialize_x86(&InitializationConfig::default());
+    Target::initialize_all(&InitializationConfig::default());
 
     let (cst, span_store) = Arena::with(|arena| {
         let lexer = cfoodlexer::CFoodLexer::<_, CommonTokenFactory>::new(
@@ -63,7 +78,7 @@ fn main() -> Result<()> {
         bail!("Compile fail due to the error");
     }
 
-    if pretty {
+    if cli.emit_cst {
         let mut cst_to_sexpr = CstToSexpr::new(&span_store, vec![&tlt]);
         let s = cst_to_sexpr.visit_file(&cst)?;
         print!("{}", s);
@@ -78,11 +93,11 @@ fn main() -> Result<()> {
             builder: &builder,
             module: &module,
         },
-        "x86_64-linux-gnu",
+        &cli.target,
         tlt.refer_map,
         tlt.type_store,
     )?;
 
-    compiler.compile(&cst, "./output.ll")?;
+    compiler.compile(&cst, &cli.output)?;
     Ok(())
 }

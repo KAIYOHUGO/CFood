@@ -1,10 +1,14 @@
-run:
-	cargo run $(FILE)
-run-pretty:
-	PRETTY=1 cargo run $(FILE)
-
 build-grammar:
-    java -jar ./antlr.jar -visitor ./CFood.g4 -o ./src/antlr
+	java -jar ./antlr.jar -visitor ./CFood.g4 -o ./src/antlr
+
+build-swl:
+	cargo build -p swl --release
+
+run:
+	cargo run -- $(FILE)
+	llc -filetype=obj output.ll -o output.o --relocation-model=pic
+	gcc -o output.out output.o ./target/release/libswl.so
+	./output.out
 
 astuin:
-	astuin "PRETTY=1 STDIN=1 cargo run"
+	astuin "cargo run -- --stdin --emit-cst"

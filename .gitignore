@@ -4,6 +4,10 @@
 homework
 /antlr
 
+# output file
+*.ll
+*.o
+*.out
 # Added by cargo
 
 /target
