@@ -112,6 +112,18 @@ where
     /// @param ctx the parse tree
     fn visit_iter_stmt(&mut self, ctx: &'arena Iter_stmtContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
 
+    /// Visit a parse tree produced by {@link CFoodParser#inline_stmts}.
+    /// @param ctx the parse tree
+    fn visit_inline_stmts(&mut self, ctx: &'arena Inline_stmtsContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
+
+    /// Visit a parse tree produced by {@link CFoodParser#inline_stmt}.
+    /// @param ctx the parse tree
+    fn visit_inline_stmt(&mut self, ctx: &'arena Inline_stmtContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
+
+    /// Visit a parse tree produced by {@link CFoodParser#for_stmt}.
+    /// @param ctx the parse tree
+    fn visit_for_stmt(&mut self, ctx: &'arena For_stmtContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
+
     /// Visit a parse tree produced by {@link CFoodParser#return_stmt}.
     /// @param ctx the parse tree
     fn visit_return_stmt(&mut self, ctx: &'arena Return_stmtContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }

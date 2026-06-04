@@ -382,6 +382,93 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
         Ok(vec![stmt.into()])
     }
 
+    fn visit_inline_stmt(
+        &mut self,
+        ctx: &'arena Inline_stmtContext<
+            'input,
+            'arena,
+            dbt_antlr4::token::TokenImpl<'input, &'input str>,
+        >,
+    ) -> Result<Self::Return, ANTLRError> {
+        let all = self
+            .visit_children(ctx)?
+            .pop()
+            .map(|all| {
+                let stmt = match all {
+                    AllType::StmtBlock(block) => block.into(),
+                    AllType::DeclVar(var) => var.into(),
+                    AllType::Stmt(stmt) => stmt,
+                    _ => bail_cst!(),
+                };
+
+                Ok(vec![stmt.into()])
+            })
+            .transpose()?;
+
+        Ok(all.unwrap_or_default())
+    }
+
+    fn visit_for_stmt(
+        &mut self,
+        ctx: &'arena For_stmtContext<'input, 'arena, CommonToken<'input>>,
+    ) -> Result<Self::Return, ANTLRError> {
+        let then_branch = self
+            .visit_stmt(ctx.stmt().must_some()?)?
+            .pop()
+            .map(|x| vec![x.expect_stmt()])
+            .unwrap_or_default();
+
+        let cond = self
+            .visit_expr(ctx.cond.must_some()?)?
+            .pop()
+            .must_some()?
+            .expect_expr();
+        let init: Vec<_> = self
+            .visit_inline_stmts(ctx.init.must_some()?)?
+            .into_iter()
+            .map(|x| x.expect_stmt())
+            .collect();
+        let mutate: Vec<_> = self
+            .visit_inline_stmts(ctx.mutate.must_some()?)?
+            .into_iter()
+            .map(|x| x.expect_stmt())
+            .collect();
+
+        let stmt: Stmt = StmtBlock {
+            id: self.get_id_with_ctx(ctx),
+            stmts: [
+                init,
+                vec![
+                    StmtIter {
+                        id: self.get_id_with_ctx(ctx),
+                        cond,
+                        then_branch: Some(Box::new(
+                            StmtBlock {
+                                id: self.get_id_with_ctx(ctx),
+                                stmts: [
+                                    vec![
+                                        StmtBlock {
+                                            id: self.get_id_with_ctx(ctx),
+                                            stmts: then_branch,
+                                        }
+                                        .into(),
+                                    ],
+                                    mutate,
+                                ]
+                                .concat(),
+                            }
+                            .into(),
+                        )),
+                    }
+                    .into(),
+                ],
+            ]
+            .concat(),
+        }
+        .into();
+        Ok(vec![stmt.into()])
+    }
+
     fn visit_iter_stmt(
         &mut self,
         ctx: &'arena Iter_stmtContext<'input, 'arena, CommonToken<'input>>,

@@ -203,6 +203,30 @@ where
     /// @param ctx the parse tree
     fn exit_iter_stmt<'input: 'arena>(&mut self, _ctx: &Iter_stmtContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
 
+    /// Enter a parse tree produced by {@link CFoodParser#inline_stmts}.
+    /// @param ctx the parse tree
+    fn enter_inline_stmts<'input: 'arena>(&mut self, _ctx: &Inline_stmtsContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Exit a parse tree produced by {@link CFoodParser#inline_stmts}.
+    /// @param ctx the parse tree
+    fn exit_inline_stmts<'input: 'arena>(&mut self, _ctx: &Inline_stmtsContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Enter a parse tree produced by {@link CFoodParser#inline_stmt}.
+    /// @param ctx the parse tree
+    fn enter_inline_stmt<'input: 'arena>(&mut self, _ctx: &Inline_stmtContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Exit a parse tree produced by {@link CFoodParser#inline_stmt}.
+    /// @param ctx the parse tree
+    fn exit_inline_stmt<'input: 'arena>(&mut self, _ctx: &Inline_stmtContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Enter a parse tree produced by {@link CFoodParser#for_stmt}.
+    /// @param ctx the parse tree
+    fn enter_for_stmt<'input: 'arena>(&mut self, _ctx: &For_stmtContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Exit a parse tree produced by {@link CFoodParser#for_stmt}.
+    /// @param ctx the parse tree
+    fn exit_for_stmt<'input: 'arena>(&mut self, _ctx: &For_stmtContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
     /// Enter a parse tree produced by {@link CFoodParser#return_stmt}.
     /// @param ctx the parse tree
     fn enter_return_stmt<'input: 'arena>(&mut self, _ctx: &Return_stmtContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }

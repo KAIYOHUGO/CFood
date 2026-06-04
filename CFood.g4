@@ -5,6 +5,7 @@ options {
 }
 
 KW_while: 'while';
+KW_for: 'for';
 KW_if: 'if';
 KW_else: 'else';
 KW_return: 'return';
@@ -62,9 +63,11 @@ WS: [ \t\r\n]+ -> skip;
 file: decls;
 decls: decl decls | ;
 
-decl: var_decl | ty_decl | fn_decl;
+decl: var_decl SEMICOLON
+    | ty_decl  SEMICOLON
+    | fn_decl;
 var_decl
-    : var_decl_ty var_decl_init SEMICOLON;
+    : var_decl_ty var_decl_init;
     
 var_decl_ty
     : ty_kind IDENT;
@@ -81,7 +84,7 @@ ty_decl:
 
 params
     : PAREN_L param_list PAREN_R
-    | PAREN_L TY_void PAREN_R
+    | PAREN_L TY_void    PAREN_R
     | PAREN_L PAREN_R;
 param_list
     : param COMMA param_list
@@ -113,17 +116,18 @@ block
     : BRACE_L stmts BRACE_R;
 stmts: stmt stmts | ;
 stmt:
-    var_decl
-    | let_stmt
-    | expr_stmt
-    | branch_stmt
+    branch_stmt
     | iter_stmt
-    | return_stmt
+    | for_stmt
     | block
+    | var_decl SEMICOLON
+    | expr_stmt SEMICOLON
+    | let_stmt SEMICOLON
+    | return_stmt SEMICOLON
     | SEMICOLON
     ;
 expr_stmt:
-    expr SEMICOLON;
+    expr;
 
 branch_stmt
     : KW_if PAREN_L expr PAREN_R then_branch=stmt
@@ -132,12 +136,26 @@ branch_stmt
 iter_stmt
     : KW_while PAREN_L expr PAREN_R stmt;
 
+inline_stmts:
+    inline_stmt
+    | inline_stmt COMMA inline_stmts;
+
+inline_stmt:
+    | var_decl
+    | expr_stmt
+    | let_stmt
+    | return_stmt
+    | ;
+
+for_stmt
+    : KW_for PAREN_L init=inline_stmts SEMICOLON cond=expr SEMICOLON mutate=inline_stmts PAREN_R stmt;
+
 return_stmt
-    : KW_return SEMICOLON
-    | KW_return expr SEMICOLON;
+    : KW_return
+    | KW_return expr;
 
 let_stmt
-    : KW_let IDENT ASSIGN expr SEMICOLON;
+    : KW_let IDENT ASSIGN expr;
 
 expr
     : assign_expr
