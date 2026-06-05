@@ -38,6 +38,16 @@ impl<'a> CstToSexpr<'a> {
             Op::Le(_) => "le",
             Op::Ge(_) => "ge",
             Op::PEO(_) => "poe",
+            Op::And(_) => "and",
+            Op::Or(_) => "or",
+        }
+    }
+
+    fn unary_op_name(op: &UnaryOp) -> &'static str {
+        match op {
+            UnaryOp::Add(_) => "plus",
+            UnaryOp::Sub(_) => "minus",
+            UnaryOp::Not(_) => "not",
         }
     }
 
@@ -275,6 +285,16 @@ impl<'a> Visitor for CstToSexpr<'a> {
         ))
     }
 
+    fn visit_expr_unary(&mut self, n: &ExprUnary) -> Result<Self::Res, Self::Error> {
+        Ok(format!(
+            "(unary {}{} (op {}) (rhs {}))",
+            self.span(n),
+            self.extra(n.id),
+            Self::unary_op_name(&n.op),
+            self.visit_expr(&n.rhs)?
+        ))
+    }
+
     fn visit_expr_call(&mut self, n: &ExprCall) -> Result<Self::Res, Self::Error> {
         Ok(format!(
             "(call {}{} (lhs {}) (rhs {}))",
@@ -282,6 +302,16 @@ impl<'a> Visitor for CstToSexpr<'a> {
             self.extra(n.id),
             self.visit_expr(&n.lhs)?,
             self.visit_expr(&n.rhs)?
+        ))
+    }
+
+    fn visit_expr_cast(&mut self, n: &ExprCast) -> Result<Self::Res, Self::Error> {
+        Ok(format!(
+            "(cast {}{} (lhs {}) (rhs {}))",
+            self.span(n),
+            self.extra(n.id),
+            self.visit_expr(&n.lhs)?,
+            self.visit_kind(&n.rhs)?
         ))
     }
 
@@ -315,8 +345,10 @@ impl<'a> Visitor for CstToSexpr<'a> {
     fn visit_expr(&mut self, n: &Expr) -> Result<Self::Res, Self::Error> {
         match n {
             Expr::Binary(x) => self.visit_expr_binary(x),
+            Expr::Unary(x) => self.visit_expr_unary(x),
             Expr::Assign(x) => self.visit_expr_assign(x),
             Expr::Call(x) => self.visit_expr_call(x),
+            Expr::Cast(x) => self.visit_expr_cast(x),
             Expr::Magic(x) => self.visit_expr_magic(x),
             Expr::Lit(x) => self.visit_lit(x),
             Expr::Var(x) => self.visit_expr_var(x),
@@ -363,7 +395,9 @@ impl<'a> Visitor for CstToSexpr<'a> {
             | Op::Lt(id)
             | Op::Gt(id)
             | Op::Le(id)
-            | Op::Ge(id) => self.extra(id.0),
+            | Op::Ge(id)
+            | Op::And(id)
+            | Op::Or(id) => self.extra(id.0),
         };
         Ok(format!(
             "(op {}{} {})",

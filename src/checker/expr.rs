@@ -6,8 +6,8 @@ use crate::{
     cst::{
         Marked,
         tys::{
-            Expr, ExprAssign, ExprBinary, ExprCall, ExprLit, ExprMagic, ExprRefer, ExprVar, Magic,
-            Op,
+            Expr, ExprAssign, ExprBinary, ExprCall, ExprCast, ExprLit, ExprMagic, ExprRefer,
+            ExprUnary, ExprVar, Magic, Op, UnaryOp,
         },
     },
     error::*,
@@ -16,8 +16,10 @@ use crate::{
 pub fn check_expr(tlt: &mut TLT, n: &Expr) -> Result<()> {
     match n {
         Expr::Binary(expr_binary) => check_expr_binary(tlt, expr_binary),
+        Expr::Unary(expr_unary) => check_expr_unary(tlt, expr_unary),
         Expr::Assign(expr_assign) => check_expr_assign(tlt, expr_assign),
         Expr::Call(expr_call) => check_expr_call(tlt, expr_call),
+        Expr::Cast(expr_cast) => check_expr_cast(tlt, expr_cast),
         Expr::Magic(expr_magic) => check_expr_magic(tlt, expr_magic),
         Expr::Lit(lit) => check_lit(tlt, lit),
         Expr::Var(expr_var) => check_expr_var(tlt, expr_var),
@@ -140,6 +142,36 @@ pub fn check_expr_binary(tlt: &mut TLT, n: &ExprBinary) -> Result<()> {
                     PrimKind::Bool
                 }
 
+                Op::And(_) | Op::Or(_) => {
+                    if lhs.outputs[0].kind != PrimKind::Bool {
+                        tlt.errors.push(CFoodError {
+                            message: "Invalid operands for logical operator".to_owned(),
+                            help: Some(
+                                "Use bool operands on both sides of `&&` or `||`.".to_owned(),
+                            ),
+                            labels: vec![
+                                CFoodErrorLabel {
+                                    cst_id: n.op.mark(),
+                                    label: Some("logical operator is used here".to_owned()),
+                                },
+                                CFoodErrorLabel {
+                                    cst_id: n.lhs.mark(),
+                                    label: Some(format!("operand type is `{}`", lhs.outputs[0])),
+                                },
+                                CFoodErrorLabel {
+                                    cst_id: n.rhs.mark(),
+                                    label: Some(format!("operand type is `{}`", rhs.outputs[0])),
+                                },
+                            ],
+                        });
+
+                        tlt.type_store.unknown(n.id);
+                        return Ok(());
+                    }
+
+                    PrimKind::Bool
+                }
+
                 Op::PEO(_) => {
                     if !lhs.outputs[0].kind.is_float() {
                         tlt.errors.push(CFoodError {
@@ -173,6 +205,130 @@ pub fn check_expr_binary(tlt: &mut TLT, n: &ExprBinary) -> Result<()> {
             tlt.type_store.unknown(n.id);
         }
     }
+
+    Ok(())
+}
+pub fn check_expr_unary(tlt: &mut TLT, n: &ExprUnary) -> Result<()> {
+    check_expr(tlt, &n.rhs)?;
+    let rhs = tlt
+        .type_store
+        .get(tlt.type_store.get_type_id(n.rhs.mark()).unwrap());
+
+    match rhs {
+        AType::CType(rhs) => {
+            if !rhs.inputs.is_empty() || rhs.outputs.len() != 1 {
+                tlt.errors.push(CFoodError {
+                    message: "Invalid operand for unary operator".to_owned(),
+                    help: Some(
+                        "Unary operators require a concrete expression with one output value."
+                            .to_owned(),
+                    ),
+                    labels: vec![CFoodErrorLabel {
+                        cst_id: n.rhs.mark(),
+                        label: Some(format!("operand has type `{rhs}`")),
+                    }],
+                });
+                tlt.type_store.unknown(n.id);
+                return Ok(());
+            }
+
+            let kind = rhs.outputs[0].kind;
+            let valid = match n.op {
+                UnaryOp::Add(_) | UnaryOp::Sub(_) => matches!(kind, PrimKind::Int | PrimKind::Float),
+                UnaryOp::Not(_) => kind == PrimKind::Bool,
+            };
+
+            if !valid {
+                let op = match n.op {
+                    UnaryOp::Add(_) => "+",
+                    UnaryOp::Sub(_) => "-",
+                    UnaryOp::Not(_) => "!",
+                };
+                let help = match n.op {
+                    UnaryOp::Add(_) | UnaryOp::Sub(_) => {
+                        format!("Use an int or float operand with unary `{op}`.")
+                    }
+                    UnaryOp::Not(_) => "Use a bool operand with unary `!`.".to_owned(),
+                };
+                tlt.errors.push(CFoodError {
+                    message: "Invalid operand for unary operator".to_owned(),
+                    help: Some(help),
+                    labels: vec![CFoodErrorLabel {
+                        cst_id: n.rhs.mark(),
+                        label: Some(format!("operand has type `{}`", rhs.outputs[0])),
+                    }],
+                });
+                tlt.type_store.unknown(n.id);
+                return Ok(());
+            }
+
+            tlt.type_store.prim(kind, n.id);
+        }
+        _ => {
+            tlt.type_store.unknown(n.id);
+        }
+    }
+
+    Ok(())
+}
+
+pub fn check_expr_cast(tlt: &mut TLT, n: &ExprCast) -> Result<()> {
+    check_expr(tlt, &n.lhs)?;
+    let lhs = tlt
+        .type_store
+        .get(tlt.type_store.get_type_id(n.lhs.mark()).unwrap());
+    let Some(outputs) = tlt.normaliaze_kind(&n.rhs) else {
+        tlt.errors.push(CFoodError {
+            message: "Cannot resolve cast target type".to_owned(),
+            help: Some("Use a built-in type or declare the alias before this cast.".to_owned()),
+            labels: vec![CFoodErrorLabel {
+                cst_id: n.rhs.mark(),
+                label: Some("cast target type cannot be resolved here".to_owned()),
+            }],
+        });
+        tlt.type_store.unknown(n.id);
+        return Ok(());
+    };
+
+    let can_cast = outputs.len() == 1
+        && match (lhs, outputs[0].kind) {
+            (AType::CType(ctype), kind) => {
+                if ctype.outputs.len() != 1 {
+                    false
+                } else {
+                    match (ctype.outputs[0].kind, kind) {
+                        (PrimKind::Int, PrimKind::Float)
+                        | (PrimKind::Float, PrimKind::Int)
+                        | (PrimKind::Bool, PrimKind::Int)
+                        | (PrimKind::Int, PrimKind::Bool) => true,
+                        (a, b) => a == b,
+                    }
+                }
+            }
+            (AType::Unknown(_), PrimKind::Int) | (AType::Unknown(_), PrimKind::Float) => true,
+            _ => false,
+        };
+
+    if !can_cast {
+        tlt.errors.push(CFoodError {
+            message: "Invalid type for casting".to_owned(),
+            labels: vec![CFoodErrorLabel {
+                cst_id: n.rhs.mark(),
+                label: Some(format!("operand has type `{}`", outputs[0])),
+            }],
+            ..Default::default()
+        });
+        tlt.type_store.unknown(n.id);
+        return Ok(());
+    }
+
+    let mut outputs = outputs;
+    outputs.reverse();
+    tlt.type_store.c_type(crate::checker::CType {
+        cst_id: n.id,
+        outputs,
+        ..Default::default()
+    });
 
     Ok(())
 }

@@ -38,8 +38,9 @@ macro_rules! impl_marked_for_id {
 }
 
 impl_marked_for_id![
-    File, DeclVar, DeclAlias, DeclFunc, Alias, ExprBinary, ExprCall, ExprMagic, ExprAssign,
-    ExprVar, ExprRefer, Param, StmtBranch, StmtBlock, StmtIter, StmtLet, StmtRet
+    File, DeclVar, DeclAlias, DeclFunc, Alias, ExprBinary, ExprUnary, ExprCall, ExprCast,
+    ExprMagic, ExprAssign, ExprVar, ExprRefer, Param, StmtBranch, StmtBlock, StmtIter, StmtLet,
+    StmtRet
 ];
 
 impl Marked for Kind {
@@ -70,6 +71,18 @@ impl Marked for Op {
             Op::Gt(s) => s.mark(),
             Op::Le(s) => s.mark(),
             Op::Ge(s) => s.mark(),
+            Op::And(s) => s.mark(),
+            Op::Or(s) => s.mark(),
+        }
+    }
+}
+
+impl Marked for UnaryOp {
+    fn mark(&self) -> usize {
+        match self {
+            UnaryOp::Add(s) => s.mark(),
+            UnaryOp::Sub(s) => s.mark(),
+            UnaryOp::Not(s) => s.mark(),
         }
     }
 }
@@ -98,8 +111,10 @@ impl Marked for Expr {
     fn mark(&self) -> usize {
         match self {
             Expr::Binary(s) => s.mark(),
+            Expr::Unary(s) => s.mark(),
             Expr::Assign(s) => s.mark(),
             Expr::Call(s) => s.mark(),
+            Expr::Cast(s) => s.mark(),
             Expr::Magic(s) => s.mark(),
             Expr::Lit(s) => s.mark(),
             Expr::Var(s) => s.mark(),

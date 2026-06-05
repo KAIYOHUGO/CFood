@@ -50,8 +50,10 @@ pub struct Alias {
 #[derive(Debug, Clone, PartialEq, PartialOrd, Is, FromVariant)]
 pub enum Expr {
     Binary(ExprBinary),
+    Unary(ExprUnary),
     Assign(ExprAssign),
     Call(ExprCall),
+    Cast(ExprCast),
     Magic(ExprMagic),
     Lit(ExprLit),
     Var(ExprVar),
@@ -63,6 +65,13 @@ pub struct ExprBinary {
     pub id: usize,
     pub op: Op,
     pub lhs: Box<Expr>,
+    pub rhs: Box<Expr>,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct ExprUnary {
+    pub id: usize,
+    pub op: UnaryOp,
     pub rhs: Box<Expr>,
 }
 
@@ -82,6 +91,17 @@ pub enum Op {
     Gt(Id),
     Le(Id),
     Ge(Id),
+
+    // Logic
+    And(Id),
+    Or(Id),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Is)]
+pub enum UnaryOp {
+    Add(Id),
+    Sub(Id),
+    Not(Id),
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -89,6 +109,13 @@ pub struct ExprCall {
     pub id: usize,
     pub lhs: Box<Expr>,
     pub rhs: Box<Expr>,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct ExprCast {
+    pub id: usize,
+    pub lhs: Box<Expr>,
+    pub rhs: Kind,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]

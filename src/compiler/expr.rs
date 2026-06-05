@@ -6,8 +6,8 @@ use crate::{
     cst::{
         Marked,
         tys::{
-            Expr, ExprAssign, ExprBinary, ExprCall, ExprLit, ExprMagic, ExprRefer, ExprVar, Magic,
-            Op,
+            Expr, ExprAssign, ExprBinary, ExprCall, ExprCast, ExprLit, ExprMagic, ExprRefer,
+            ExprUnary, ExprVar, Magic, Op, UnaryOp,
         },
     },
 };
@@ -62,8 +62,10 @@ impl<'ctx> ExprCompiler<'ctx> {
     fn compile_expr(&mut self, com: &mut Compiler<'_, 'ctx>, n: &Expr) -> Result<()> {
         match n {
             Expr::Binary(expr_binary) => self.compile_binary(com, expr_binary)?,
+            Expr::Unary(expr_unary) => self.compile_unary(com, expr_unary)?,
             Expr::Assign(expr_assign) => self.compile_assign(com, expr_assign)?,
             Expr::Call(expr_call) => self.compile_call(com, expr_call)?,
+            Expr::Cast(expr_cast) => self.compile_cast(com, expr_cast)?,
             Expr::Magic(expr_magic) => self.compile_magic(com, expr_magic)?,
             Expr::Lit(expr_lit) => self.compile_lit(com, expr_lit)?,
             Expr::Var(expr_var) => self.compile_var(com, expr_var)?,
@@ -115,6 +117,16 @@ impl<'ctx> ExprCompiler<'ctx> {
                     .llvm
                     .builder
                     .build_int_signed_rem(lhs.into_int_value(), rhs.into_int_value(), "int_mod")?
+                    .into(),
+                Op::And(_) => com
+                    .llvm
+                    .builder
+                    .build_and(lhs.into_int_value(), rhs.into_int_value(), "int_and")?
+                    .into(),
+                Op::Or(_) => com
+                    .llvm
+                    .builder
+                    .build_or(lhs.into_int_value(), rhs.into_int_value(), "int_or")?
                     .into(),
                 op => {
                     let op = match op {
@@ -192,6 +204,101 @@ impl<'ctx> ExprCompiler<'ctx> {
             PrimKind::Bool => unreachable!(),
             PrimKind::ConStr => unreachable!(),
         };
+        self.stack.push(value);
+        Ok(())
+    }
+
+    fn compile_unary(&mut self, com: &mut Compiler<'_, 'ctx>, n: &ExprUnary) -> Result<()> {
+        self.compile_expr(com, &n.rhs)?;
+        let rhs = self.stack.pop().unwrap();
+
+        let ty = com
+            .type_store
+            .get(com.type_store.get_type_id(n.rhs.mark()).unwrap())
+            .as_c_type()
+            .unwrap()
+            .outputs[0]
+            .kind;
+
+        let value = match (ty, n.op) {
+            (PrimKind::Int, UnaryOp::Add(_)) => rhs,
+            (PrimKind::Int, UnaryOp::Sub(_)) => com
+                .llvm
+                .builder
+                .build_int_neg(rhs.into_int_value(), "int_neg")?
+                .into(),
+            (PrimKind::Float, UnaryOp::Add(_)) => rhs,
+            (PrimKind::Float, UnaryOp::Sub(_)) => com
+                .llvm
+                .builder
+                .build_float_neg(rhs.into_float_value(), "float_neg")?
+                .into(),
+            (PrimKind::Bool, UnaryOp::Not(_)) => com
+                .llvm
+                .builder
+                .build_not(rhs.into_int_value(), "bool_not")?
+                .into(),
+            _ => unreachable!(),
+        };
+
+        self.stack.push(value);
+        Ok(())
+    }
+
+    fn compile_cast(&mut self, com: &mut Compiler<'_, 'ctx>, n: &ExprCast) -> Result<()> {
+        self.compile_expr(com, &n.lhs)?;
+        let value = self.stack.pop().unwrap();
+
+        let src = com
+            .type_store
+            .get(com.type_store.get_type_id(n.lhs.mark()).unwrap())
+            .as_c_type()
+            .unwrap()
+            .outputs[0]
+            .kind;
+        let dst = com
+            .type_store
+            .get(com.type_store.get_type_id(n.id).unwrap())
+            .as_c_type()
+            .unwrap()
+            .outputs[0]
+            .kind;
+
+        let value = match (src, dst) {
+            (PrimKind::Int, PrimKind::Int)
+            | (PrimKind::Float, PrimKind::Float)
+            | (PrimKind::Bool, PrimKind::Bool)
+            | (PrimKind::ConStr, PrimKind::ConStr) => value,
+            (PrimKind::Int, PrimKind::Float) => com
+                .llvm
+                .builder
+                .build_signed_int_to_float(
+                    value.into_int_value(),
+                    com.to_llvm_type(PrimKind::Float).into_float_type(),
+                    "int_to_float",
+                )?
+                .into(),
+            (PrimKind::Float, PrimKind::Int) => com
+                .llvm
+                .builder
+                .build_float_to_signed_int(
+                    value.into_float_value(),
+                    com.to_llvm_type(PrimKind::Int).into_int_type(),
+                    "float_to_int",
+                )?
+                .into(),
+            (PrimKind::Bool, PrimKind::Int) => com
+                .llvm
+                .builder
+                .build_int_z_extend(
+                    value.into_int_value(),
+                    com.to_llvm_type(PrimKind::Int).into_int_type(),
+                    "bool_to_int",
+                )?
+                .into(),
+            _ => unreachable!(),
+        };
+
         self.stack.push(value);
         Ok(())
     }

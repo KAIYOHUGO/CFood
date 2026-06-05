@@ -95,6 +95,7 @@ enum AllType {
     // StmtBranch(StmtBranch),
     StmtBlock(StmtBlock),
     Op(Op),
+    UnaryOp(UnaryOp),
     Lit(ExprLit),
 }
 
@@ -366,7 +367,7 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
             .flatten()
             .map(Box::new);
         let cond = self
-            .visit_expr(ctx.expr().must_some()?)?
+            .visit_node(ctx.expr().must_some()?.as_node())?
             .pop()
             .must_some()?
             .expect_expr();
@@ -419,7 +420,7 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
             .unwrap_or_default();
 
         let cond = self
-            .visit_expr(ctx.cond.must_some()?)?
+            .visit_node(ctx.cond.must_some()?.as_node())?
             .pop()
             .must_some()?
             .expect_expr();
@@ -479,7 +480,7 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
             .map(|x| x.expect_stmt())
             .map(Box::new);
         let cond = self
-            .visit_expr(ctx.expr().must_some()?)?
+            .visit_node(ctx.expr().must_some()?.as_node())?
             .pop()
             .must_some()?
             .expect_expr();
@@ -500,7 +501,7 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
     ) -> Result<Self::Return, ANTLRError> {
         let expr = ctx
             .expr()
-            .map(|x| self.visit_expr(x))
+            .map(|x| self.visit_node(x.as_node()))
             .transpose()?
             .map(|mut x| x.pop().must_some())
             .transpose()?
@@ -545,19 +546,19 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
         Ok(vec![stmt.into()])
     }
 
-    fn visit_assign_expr(
+    fn visit_expr_assign_use(
         &mut self,
-        ctx: &'arena Assign_exprContext<'input, 'arena, CommonToken<'input>>,
+        ctx: &'arena Expr_assign_useContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         let var = Box::new(
-            self.visit_var(ctx.var().unwrap())?
+            self.visit_var(ctx.var().must_some()?)?
                 .pop()
                 .must_some()?
                 .expect_var(),
         );
 
         let rhs = Box::new(
-            self.visit_expr(ctx.expr().must_some()?)?
+            self.visit_node(ctx.expr_assign().must_some()?.as_node())?
                 .pop()
                 .must_some()?
                 .expect_expr(),
@@ -566,6 +567,245 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
         let expr: Expr = ExprAssign {
             id: self.get_id_with_ctx(ctx),
             var,
+            rhs,
+        }
+        .into();
+
+        Ok(vec![expr.into()])
+    }
+
+    fn visit_expr_logic_use(
+        &mut self,
+        ctx: &'arena Expr_logic_useContext<'input, 'arena, CommonToken<'input>>,
+    ) -> Result<Self::Return, ANTLRError> {
+        let lhs = Box::new(
+            self.visit_node(ctx.expr_cmp().must_some()?.as_node())?
+                .pop()
+                .must_some()?
+                .expect_expr(),
+        );
+        let rhs = Box::new(
+            self.visit_node(ctx.expr_logic().must_some()?.as_node())?
+                .pop()
+                .must_some()?
+                .expect_expr(),
+        );
+        let op = self
+            .visit_logic_preced_op(ctx.logic_preced_op().must_some()?)?
+            .pop()
+            .must_some()?
+            .expect_op();
+
+        let expr: Expr = ExprBinary {
+            id: self.get_id_with_ctx(ctx),
+            op,
+            lhs,
+            rhs,
+        }
+        .into();
+
+        Ok(vec![expr.into()])
+    }
+
+    fn visit_expr_cmp_use(
+        &mut self,
+        ctx: &'arena Expr_cmp_useContext<'input, 'arena, CommonToken<'input>>,
+    ) -> Result<Self::Return, ANTLRError> {
+        let lhs = Box::new(
+            self.visit_node(ctx.expr_magic().must_some()?.as_node())?
+                .pop()
+                .must_some()?
+                .expect_expr(),
+        );
+        let rhs = Box::new(
+            self.visit_node(ctx.expr_cmp().must_some()?.as_node())?
+                .pop()
+                .must_some()?
+                .expect_expr(),
+        );
+        let op = self
+            .visit_cmp_preced_op(ctx.cmp_preced_op().must_some()?)?
+            .pop()
+            .must_some()?
+            .expect_op();
+
+        let expr: Expr = ExprBinary {
+            id: self.get_id_with_ctx(ctx),
+            op,
+            lhs,
+            rhs,
+        }
+        .into();
+
+        Ok(vec![expr.into()])
+    }
+
+    fn visit_expr_magic_use(
+        &mut self,
+        ctx: &'arena Expr_magic_useContext<'input, 'arena, CommonToken<'input>>,
+    ) -> Result<Self::Return, ANTLRError> {
+        let magic = ctx.magic().must_some()?.start();
+        let lhs_id = Id(self.get_id_with_symbol(magic));
+        let lhs = match magic.get_token_type() {
+            cfoodlexer::MAGIC_printf => Magic::Printf(lhs_id),
+            cfoodlexer::MAGIC_scanf => Magic::Scanf(lhs_id),
+            _ => bail_cst!(),
+        };
+        let rhs = Box::new(
+            self.visit_node(ctx.expr_magic().must_some()?.as_node())?
+                .pop()
+                .must_some()?
+                .expect_expr(),
+        );
+
+        let expr: Expr = ExprMagic {
+            id: self.get_id_with_ctx(ctx),
+            lhs,
+            rhs,
+        }
+        .into();
+
+        Ok(vec![expr.into()])
+    }
+
+    fn visit_expr_call_use(
+        &mut self,
+        ctx: &'arena Expr_call_useContext<'input, 'arena, CommonToken<'input>>,
+    ) -> Result<Self::Return, ANTLRError> {
+        let lhs = Box::new(
+            self.visit_node(ctx.expr_add().must_some()?.as_node())?
+                .pop()
+                .must_some()?
+                .expect_expr(),
+        );
+        let rhs = Box::new(
+            self.visit_node(ctx.expr_call().must_some()?.as_node())?
+                .pop()
+                .must_some()?
+                .expect_expr(),
+        );
+
+        let expr: Expr = ExprCall {
+            id: self.get_id_with_ctx(ctx),
+            lhs,
+            rhs,
+        }
+        .into();
+
+        Ok(vec![expr.into()])
+    }
+
+    fn visit_expr_add_use(
+        &mut self,
+        ctx: &'arena Expr_add_useContext<'input, 'arena, CommonToken<'input>>,
+    ) -> Result<Self::Return, ANTLRError> {
+        let lhs = Box::new(
+            self.visit_node(ctx.expr_mul().must_some()?.as_node())?
+                .pop()
+                .must_some()?
+                .expect_expr(),
+        );
+        let rhs = Box::new(
+            self.visit_node(ctx.expr_add().must_some()?.as_node())?
+                .pop()
+                .must_some()?
+                .expect_expr(),
+        );
+        let op = self
+            .visit_add_preced_op(ctx.add_preced_op().must_some()?)?
+            .pop()
+            .must_some()?
+            .expect_op();
+
+        let expr: Expr = ExprBinary {
+            id: self.get_id_with_ctx(ctx),
+            op,
+            lhs,
+            rhs,
+        }
+        .into();
+
+        Ok(vec![expr.into()])
+    }
+
+    fn visit_expr_mul_use(
+        &mut self,
+        ctx: &'arena Expr_mul_useContext<'input, 'arena, CommonToken<'input>>,
+    ) -> Result<Self::Return, ANTLRError> {
+        let lhs = Box::new(
+            self.visit_node(ctx.expr_cast().must_some()?.as_node())?
+                .pop()
+                .must_some()?
+                .expect_expr(),
+        );
+        let rhs = Box::new(
+            self.visit_node(ctx.expr_mul().must_some()?.as_node())?
+                .pop()
+                .must_some()?
+                .expect_expr(),
+        );
+        let op = self
+            .visit_mul_preced_op(ctx.mul_preced_op().must_some()?)?
+            .pop()
+            .must_some()?
+            .expect_op();
+
+        let expr: Expr = ExprBinary {
+            id: self.get_id_with_ctx(ctx),
+            op,
+            lhs,
+            rhs,
+        }
+        .into();
+
+        Ok(vec![expr.into()])
+    }
+
+    fn visit_expr_cast_use(
+        &mut self,
+        ctx: &'arena Expr_cast_useContext<'input, 'arena, CommonToken<'input>>,
+    ) -> Result<Self::Return, ANTLRError> {
+        let lhs = Box::new(
+            self.visit_node(ctx.expr_unary().must_some()?.as_node())?
+                .pop()
+                .must_some()?
+                .expect_expr(),
+        );
+        let rhs = self
+            .visit_node(ctx.ty_kind().must_some()?.as_node())?
+            .pop()
+            .must_some()?
+            .expect_kind();
+
+        let expr: Expr = ExprCast {
+            id: self.get_id_with_ctx(ctx),
+            lhs,
+            rhs,
+        }
+        .into();
+
+        Ok(vec![expr.into()])
+    }
+
+    fn visit_expr_unary_use(
+        &mut self,
+        ctx: &'arena Expr_unary_useContext<'input, 'arena, CommonToken<'input>>,
+    ) -> Result<Self::Return, ANTLRError> {
+        let op = self
+            .visit_unary_preced_op(ctx.unary_preced_op().must_some()?)?
+            .pop()
+            .must_some()?
+            .expect_unary_op();
+        let rhs = Box::new(
+            self.visit_node(ctx.expr_unary().must_some()?.as_node())?
+                .pop()
+                .must_some()?
+                .expect_expr(),
+        );
+
+        let expr: Expr = ExprUnary {
+            id: self.get_id_with_ctx(ctx),
+            op,
             rhs,
         }
         .into();
@@ -609,186 +849,9 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
         Ok(vec![expr.into()])
     }
 
-    fn visit_calc_expr_use(
+    fn visit_atom_var(
         &mut self,
-        ctx: &'arena Calc_expr_useContext<'input, 'arena, CommonToken<'input>>,
-    ) -> Result<Self::Return, ANTLRError> {
-        let lhs = Box::new(
-            self.visit_node(ctx.lhs.must_some()?.as_node())?
-                .pop()
-                .must_some()?
-                .expect_expr(),
-        );
-        let rhs = Box::new(
-            self.visit_node(ctx.rhs.must_some()?.as_node())?
-                .pop()
-                .must_some()?
-                .expect_expr(),
-        );
-        let op = self
-            .visit_cmp_preced_op(ctx.cmp_preced_op().must_some()?)?
-            .pop()
-            .must_some()?
-            .expect_op();
-
-        let expr: Expr = ExprBinary {
-            id: self.get_id_with_ctx(ctx),
-            op: op,
-            lhs,
-            rhs,
-        }
-        .into();
-        Ok(vec![expr.into()])
-    }
-
-    fn visit_calc_expr_pass(
-        &mut self,
-        ctx: &'arena Calc_expr_passContext<'input, 'arena, CommonToken<'input>>,
-    ) -> Result<Self::Return, ANTLRError> {
-        self.visit_node(ctx.call_preced_expr().must_some()?.as_node())
-    }
-
-    fn visit_call_preced_expr_use(
-        &mut self,
-        ctx: &'arena Call_preced_expr_useContext<'input, 'arena, CommonToken<'input>>,
-    ) -> Result<Self::Return, ANTLRError> {
-        let lhs = Box::new(
-            self.visit_node(ctx.add_preced_expr().must_some()?.as_node())?
-                .pop()
-                .must_some()?
-                .expect_expr(),
-        );
-        let rhs = Box::new(
-            self.visit_node(ctx.call_preced_expr().must_some()?.as_node())?
-                .pop()
-                .must_some()?
-                .expect_expr(),
-        );
-
-        let expr: Expr = ExprCall {
-            id: self.get_id_with_ctx(ctx),
-            lhs,
-            rhs,
-        }
-        .into();
-        Ok(vec![expr.into()])
-    }
-
-    fn visit_call_preced_expr_magic(
-        &mut self,
-        ctx: &'arena Call_preced_expr_magicContext<'input, 'arena, CommonToken<'input>>,
-    ) -> Result<Self::Return, ANTLRError> {
-        let magic = ctx.magic().must_some()?.start();
-        let lhs_id = Id(self.get_id_with_symbol(magic));
-        let lhs = match magic.get_token_type() {
-            cfoodlexer::MAGIC_printf => Magic::Printf(lhs_id),
-            cfoodlexer::MAGIC_scanf => Magic::Scanf(lhs_id),
-            _ => bail_cst!(),
-        };
-        let rhs = Box::new(
-            self.visit_node(ctx.call_preced_expr().must_some()?.as_node())?
-                .pop()
-                .must_some()?
-                .expect_expr(),
-        );
-
-        let expr: Expr = ExprMagic {
-            id: self.get_id_with_ctx(ctx),
-            lhs,
-            rhs,
-        }
-        .into();
-        Ok(vec![expr.into()])
-    }
-
-    fn visit_call_preced_expr_pass(
-        &mut self,
-        ctx: &'arena Call_preced_expr_passContext<'input, 'arena, CommonToken<'input>>,
-    ) -> Result<Self::Return, ANTLRError> {
-        self.visit_node(ctx.add_preced_expr().must_some()?.as_node())
-    }
-
-    fn visit_add_preced_expr_use(
-        &mut self,
-        ctx: &'arena Add_preced_expr_useContext<'input, 'arena, CommonToken<'input>>,
-    ) -> Result<Self::Return, ANTLRError> {
-        let lhs = Box::new(
-            self.visit_node(ctx.mul_preced_expr().must_some()?.as_node())?
-                .pop()
-                .must_some()?
-                .expect_expr(),
-        );
-        let rhs = Box::new(
-            self.visit_node(ctx.add_preced_expr().must_some()?.as_node())?
-                .pop()
-                .must_some()?
-                .expect_expr(),
-        );
-        let op = self
-            .visit_add_preced_op(ctx.add_preced_op().must_some()?)?
-            .pop()
-            .must_some()?
-            .expect_op();
-
-        let expr: Expr = ExprBinary {
-            id: self.get_id_with_ctx(ctx),
-            op: op,
-            lhs,
-            rhs,
-        }
-        .into();
-        Ok(vec![expr.into()])
-    }
-
-    fn visit_add_preced_expr_pass(
-        &mut self,
-        ctx: &'arena Add_preced_expr_passContext<'input, 'arena, CommonToken<'input>>,
-    ) -> Result<Self::Return, ANTLRError> {
-        self.visit_node(ctx.mul_preced_expr().must_some()?.as_node())
-    }
-
-    fn visit_mul_preced_expr_use(
-        &mut self,
-        ctx: &'arena Mul_preced_expr_useContext<'input, 'arena, CommonToken<'input>>,
-    ) -> Result<Self::Return, ANTLRError> {
-        let lhs = Box::new(
-            self.visit_node(ctx.atom_preced_expr().must_some()?.as_node())?
-                .pop()
-                .must_some()?
-                .expect_expr(),
-        );
-        let rhs = Box::new(
-            self.visit_node(ctx.mul_preced_expr().must_some()?.as_node())?
-                .pop()
-                .must_some()?
-                .expect_expr(),
-        );
-        let op = self
-            .visit_mul_preced_op(ctx.mul_preced_op().must_some()?)?
-            .pop()
-            .must_some()?
-            .expect_op();
-
-        let expr: Expr = ExprBinary {
-            id: self.get_id_with_ctx(ctx),
-            op: op,
-            lhs,
-            rhs,
-        }
-        .into();
-        Ok(vec![expr.into()])
-    }
-
-    fn visit_mul_preced_expr_pass(
-        &mut self,
-        ctx: &'arena Mul_preced_expr_passContext<'input, 'arena, CommonToken<'input>>,
-    ) -> Result<Self::Return, ANTLRError> {
-        self.visit_node(ctx.atom_preced_expr().must_some()?.as_node())
-    }
-
-    fn visit_atom_preced_expr_var(
-        &mut self,
-        ctx: &'arena Atom_preced_expr_varContext<'input, 'arena, CommonToken<'input>>,
+        ctx: &'arena Atom_varContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         let var = self
             .visit_var(ctx.var().must_some()?)?
@@ -800,9 +863,9 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
         Ok(vec![expr.into()])
     }
 
-    fn visit_atom_preced_expr_lit(
+    fn visit_atom_lit(
         &mut self,
-        ctx: &'arena Atom_preced_expr_litContext<'input, 'arena, CommonToken<'input>>,
+        ctx: &'arena Atom_litContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         let lit = self
             .visit_node(ctx.lit().must_some()?.as_node())?
@@ -812,6 +875,19 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
 
         let expr: Expr = lit.into();
         Ok(vec![expr.into()])
+    }
+
+    fn visit_logic_preced_op(
+        &mut self,
+        ctx: &'arena Logic_preced_opContext<'input, 'arena, CommonToken<'input>>,
+    ) -> Result<Self::Return, ANTLRError> {
+        let id = Id(self.get_id_with_ctx(ctx));
+        let op = match ctx.start().get_token_type() {
+            cfoodlexer::AND => Op::And(id),
+            cfoodlexer::OR => Op::Or(id),
+            _ => bail_cst!(),
+        };
+        Ok(vec![op.into()])
     }
 
     fn visit_cmp_preced_op(
@@ -857,6 +933,20 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
             _ => bail_cst!(),
         };
         Ok(vec![op.into()])
+    }
+
+    fn visit_unary_preced_op(
+        &mut self,
+        ctx: &'arena Unary_preced_opContext<'input, 'arena, CommonToken<'input>>,
+    ) -> Result<Self::Return, ANTLRError> {
+        let id = Id(self.get_id_with_ctx(ctx));
+        let op = match ctx.start().get_token_type() {
+            cfoodlexer::NOT => UnaryOp::Not(id),
+            cfoodlexer::PLUS => UnaryOp::Add(id),
+            cfoodlexer::SUB => UnaryOp::Sub(id),
+            _ => bail_cst!(),
+        };
+        Ok(vec![AllType::UnaryOp(op)])
     }
 
     fn visit_args(

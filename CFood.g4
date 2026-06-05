@@ -12,6 +12,7 @@ KW_return: 'return';
 
 KW_type: 'type';
 KW_let: 'let';
+KW_as: 'as';
 
 
 TY_int: 'int';
@@ -35,6 +36,10 @@ LT: '<';
 GT: '>';
 LE: '<=';
 GE: '>=';
+
+NOT: '!';
+AND: '&&';
+OR: '||';
 
 PLUS: '+';
 SUB: '-';
@@ -157,28 +162,65 @@ return_stmt
 let_stmt
     : KW_let IDENT ASSIGN expr;
 
-expr
-    : assign_expr
-    | calc_expr;
-
-assign_expr
-    : var ASSIGN expr;
-
 var
     : IDENT;
 
 refer
     : REFER IDENT;
 
-calc_expr
-    : lhs=call_preced_expr cmp_preced_op rhs=call_preced_expr # calc_expr_use
-    | call_preced_expr                                        # calc_expr_pass
+expr
+    : expr_assign;
+
+expr_assign
+    : expr_logic # expr_assign_pass
+    | lhs=var ASSIGN rhs=expr_assign # expr_assign_use
     ;
 
-call_preced_expr
-    : add_preced_expr call_preced_expr # call_preced_expr_use
-    | magic           call_preced_expr # call_preced_expr_magic
-    | add_preced_expr                  # call_preced_expr_pass
+expr_logic
+    : expr_cmp # expr_logic_pass
+    | lhs=expr_cmp logic_preced_op rhs=expr_logic # expr_logic_use
+    ;
+
+expr_cmp
+    : expr_magic # expr_cmp_pass
+    | lhs=expr_magic cmp_preced_op rhs=expr_cmp # expr_cmp_use
+    ;
+
+expr_magic
+    : expr_call # expr_magic_pass
+    | lhs=magic rhs=expr_magic # expr_magic_use
+    ;
+
+expr_call
+    : expr_add # expr_call_pass
+    | lhs=expr_add rhs=expr_call # expr_call_use
+    ;
+
+expr_add
+    : expr_mul # expr_add_pass
+    | lhs=expr_mul add_preced_op rhs=expr_add # expr_add_use
+    ;
+
+expr_mul
+    : expr_cast # expr_mul_pass
+    | lhs=expr_cast mul_preced_op rhs=expr_mul # expr_mul_use
+    ;
+
+expr_cast
+    : expr_unary # expr_cast_pass
+    | lhs=expr_unary KW_as rhs=ty_kind # expr_cast_use
+    ;
+
+expr_unary
+    : atom # expr_unary_pass
+    | unary_preced_op rhs=expr_unary # expr_unary_use
+    ;
+
+atom
+    : apply_list # atom_apply_list
+    | var        # atom_var
+    | refer      # atom_refer
+    | lit        # atom_lit
     ;
 
 magic
@@ -186,24 +228,11 @@ magic
     | MAGIC_scanf
     ;
 
-add_preced_expr
-    : mul_preced_expr add_preced_op add_preced_expr # add_preced_expr_use
-    | mul_preced_expr                               # add_preced_expr_pass
-    ;
-
-mul_preced_expr
-    : atom_preced_expr mul_preced_op mul_preced_expr # mul_preced_expr_use
-    | atom_preced_expr                               # mul_preced_expr_pass
-    ;
-
-atom_preced_expr
-    : apply_list # atom_preced_expr_apply_list
-    | var        # atom_preced_expr_var
-    | refer      # atom_preced_expr_refer
-    | lit        # atom_preced_expr_lit
-    ;
-
 // low to high
+logic_preced_op
+    : AND
+    | OR;
+
 cmp_preced_op
     : NE
     | EQ
@@ -219,6 +248,11 @@ mul_preced_op
     | DIV
     | MOD
     | PEO;
+
+unary_preced_op
+    : PLUS
+    | SUB
+    | NOT;
 
 apply_list
     : PAREN_L args PAREN_R;

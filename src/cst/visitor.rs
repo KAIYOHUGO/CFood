@@ -25,10 +25,16 @@ pub trait Visitor: Sized {
     fn visit_expr_binary(&mut self, n: &ExprBinary) -> Result<Self::Res, Self::Error> {
         n.visit(self)
     }
+    fn visit_expr_unary(&mut self, n: &ExprUnary) -> Result<Self::Res, Self::Error> {
+        n.visit(self)
+    }
     fn visit_op(&mut self, n: &Op) -> Result<Self::Res, Self::Error> {
         n.visit(self)
     }
     fn visit_expr_call(&mut self, n: &ExprCall) -> Result<Self::Res, Self::Error> {
+        n.visit(self)
+    }
+    fn visit_expr_cast(&mut self, n: &ExprCast) -> Result<Self::Res, Self::Error> {
         n.visit(self)
     }
     fn visit_expr_magic(&mut self, n: &ExprMagic) -> Result<Self::Res, Self::Error> {
@@ -202,8 +208,10 @@ impl VisitAble for Expr {
     {
         match self {
             Expr::Binary(x) => ctx.visit_expr_binary(x)?,
+            Expr::Unary(x) => ctx.visit_expr_unary(x)?,
             Expr::Assign(x) => ctx.visit_expr_assign(x)?,
             Expr::Call(x) => ctx.visit_expr_call(x)?,
+            Expr::Cast(x) => ctx.visit_expr_cast(x)?,
             Expr::Magic(x) => ctx.visit_expr_magic(x)?,
             Expr::Lit(x) => ctx.visit_lit(x)?,
             Expr::Var(x) => ctx.visit_expr_var(x)?,
@@ -220,6 +228,16 @@ impl VisitAble for ExprBinary {
     {
         ctx.visit_op(&self.op)?;
         ctx.visit_expr(&self.lhs)?;
+        ctx.visit_expr(&self.rhs)?;
+        Ok(T::Res::default())
+    }
+}
+
+impl VisitAble for ExprUnary {
+    fn visit<T>(&self, ctx: &mut T) -> Result<T::Res, T::Error>
+    where
+        T: Visitor,
+    {
         ctx.visit_expr(&self.rhs)?;
         Ok(T::Res::default())
     }
@@ -242,6 +260,17 @@ impl VisitAble for ExprCall {
     {
         ctx.visit_expr(&self.lhs)?;
         ctx.visit_expr(&self.rhs)?;
+        Ok(T::Res::default())
+    }
+}
+
+impl VisitAble for ExprCast {
+    fn visit<T>(&self, ctx: &mut T) -> Result<T::Res, T::Error>
+    where
+        T: Visitor,
+    {
+        ctx.visit_expr(&self.lhs)?;
+        ctx.visit_kind(&self.rhs)?;
         Ok(T::Res::default())
     }
 }

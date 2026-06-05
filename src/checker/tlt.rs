@@ -155,7 +155,7 @@ impl<'a> TLT<'a> {
     }
 
     // left to right = first to last
-    fn normaliaze_kind(&mut self, kind: &Kind) -> Option<Vec<Prim>> {
+    pub(crate) fn normaliaze_kind(&self, kind: &Kind) -> Option<Vec<Prim>> {
         match kind {
             Kind::Int(id) => Some(vec![Prim {
                 cst_id: id.0,
@@ -182,7 +182,20 @@ impl<'a> TLT<'a> {
     }
 
     pub(super) fn check_decl_var<'b: 'a>(&mut self, n: &'b DeclVar) -> Result<()> {
-        let mut outputs = self.normaliaze_kind(&n.ty).unwrap();
+        let Some(mut outputs) = self.normaliaze_kind(&n.ty) else {
+            self.errors.push(CFoodError {
+                message: "Cannot resolve declared type".to_owned(),
+                help: Some(
+                    "Use a built-in type or declare the alias before this variable.".to_owned(),
+                ),
+                labels: vec![CFoodErrorLabel {
+                    cst_id: n.ty.mark(),
+                    label: Some("type cannot be resolved here".to_owned()),
+                }],
+            });
+            self.type_store.unknown(n.id);
+            return Ok(());
+        };
         outputs.reverse();
 
         let id = self.type_store.c_type(CType {
@@ -240,7 +253,21 @@ impl<'a> TLT<'a> {
     fn check_decl_func<'b: 'a>(&mut self, n: &'b DeclFunc) -> Result<()> {
         let mut params = vec![];
         for param in &n.params {
-            let mut outputs = self.normaliaze_kind(&param.ty).unwrap();
+            let Some(mut outputs) = self.normaliaze_kind(&param.ty) else {
+                self.errors.push(CFoodError {
+                    message: "Cannot resolve parameter type".to_owned(),
+                    help: Some(
+                        "Use a built-in type or declare the alias before this function."
+                            .to_owned(),
+                    ),
+                    labels: vec![CFoodErrorLabel {
+                        cst_id: param.ty.mark(),
+                        label: Some("parameter type cannot be resolved here".to_owned()),
+                    }],
+                });
+                self.type_store.unknown(param.id);
+                return Ok(());
+            };
             outputs.reverse();
 
             let id = self.type_store.c_type(CType {
@@ -251,7 +278,20 @@ impl<'a> TLT<'a> {
             params.push(id);
         }
 
-        let mut outputs = self.normaliaze_kind(&n.ret).unwrap();
+        let Some(mut outputs) = self.normaliaze_kind(&n.ret) else {
+            self.errors.push(CFoodError {
+                message: "Cannot resolve return type".to_owned(),
+                help: Some(
+                    "Use a built-in type or declare the alias before this function.".to_owned(),
+                ),
+                labels: vec![CFoodErrorLabel {
+                    cst_id: n.ret.mark(),
+                    label: Some("return type cannot be resolved here".to_owned()),
+                }],
+            });
+            self.type_store.unknown(n.id);
+            return Ok(());
+        };
         outputs.reverse();
 
         let ret = self.type_store.c_type(CType {
