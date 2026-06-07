@@ -48,7 +48,7 @@ impl<'a> ExtraCstInfo for TLT<'a> {
 
 impl<'a> TLT<'a> {
     pub fn check_file<'b: 'a>(&mut self, n: &'b File) -> Result<()> {
-        super::decl::hoist(self, &n.decls);
+        super::decl::hoist_alias(self, &n.decls);
         for decl in &n.decls {
             match decl {
                 Decl::Func(decl_func) => {
