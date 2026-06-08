@@ -118,16 +118,6 @@ impl<'ctx> ExprCompiler<'ctx> {
                     .builder
                     .build_int_signed_rem(lhs.into_int_value(), rhs.into_int_value(), "int_mod")?
                     .into(),
-                Op::And(_) => com
-                    .llvm
-                    .builder
-                    .build_and(lhs.into_int_value(), rhs.into_int_value(), "int_and")?
-                    .into(),
-                Op::Or(_) => com
-                    .llvm
-                    .builder
-                    .build_or(lhs.into_int_value(), rhs.into_int_value(), "int_or")?
-                    .into(),
                 op => {
                     let op = match op {
                         Op::Ne(_) => IntPredicate::NE,
@@ -201,7 +191,19 @@ impl<'ctx> ExprCompiler<'ctx> {
                         .into()
                 }
             },
-            PrimKind::Bool => unreachable!(),
+            PrimKind::Bool => match n.op {
+                Op::And(_) => com
+                    .llvm
+                    .builder
+                    .build_and(lhs.into_int_value(), rhs.into_int_value(), "int_and")?
+                    .into(),
+                Op::Or(_) => com
+                    .llvm
+                    .builder
+                    .build_or(lhs.into_int_value(), rhs.into_int_value(), "int_or")?
+                    .into(),
+                _ => unreachable!(),
+            },
             PrimKind::ConStr => unreachable!(),
         };
         self.stack.push(value);
