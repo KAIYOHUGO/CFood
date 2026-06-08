@@ -29,7 +29,6 @@ pub fn hoist_alias<'a, 'b: 'a>(tlt: &mut TLT<'a>, n: &'b Vec<Decl>) {
         remain: usize,
     ) -> Result<Vec<Prim>, ()> {
         if remain == 0 {
-            // TODO
             return Err(());
         }
         let mut outputs = vec![];
@@ -70,7 +69,7 @@ pub fn hoist_alias<'a, 'b: 'a>(tlt: &mut TLT<'a>, n: &'b Vec<Decl>) {
             }
         }
 
-        Ok(vec![])
+        Ok(outputs)
     }
 
     // resolve type alias

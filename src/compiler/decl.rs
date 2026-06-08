@@ -28,6 +28,37 @@ pub fn compile_decl_func(com: &mut Compiler, n: &DeclFunc) -> Result<()> {
 
     let entry = com.llvm.context.append_basic_block(func, "entry");
     com.llvm.builder.position_at_end(entry);
+    // declare the params
+    let mut param_values = func.get_params().into_iter().rev();
+    for param in n.params.iter().rev() {
+        let id = com.type_store.get_type_id(param.id).unwrap();
+        let cty = com.type_store.get(id).as_c_type().unwrap();
+
+        assert!(cty.inputs.is_empty());
+
+        let outputs: Vec<_> = cty
+            .outputs
+            .iter()
+            .map(|x| com.to_llvm_type(x.kind))
+            .collect();
+        let ty = com.llvm.context.struct_type(&outputs, false);
+        let value = com.llvm.builder.build_alloca(ty, &param.name.inner)?;
+
+        let mut init = ty.get_undef().into();
+        for i in 0..cty.outputs.len() {
+            init = com.llvm.builder.build_insert_value(
+                init,
+                param_values
+                    .next()
+                    .expect("Param len is not match the input len"),
+                i as u32,
+                &format!("field_{i}"),
+            )?;
+        }
+        com.llvm.builder.build_store(value, init)?;
+        let value = LLVMValue { id, ty, value };
+        com.var_store.new_value(param.id, value);
+    }
 
     let func = LLVMFunc { id, ty, func };
     com.var_store.new_func(n.id, func.clone());

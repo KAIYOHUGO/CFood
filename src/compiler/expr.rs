@@ -75,9 +75,9 @@ impl<'ctx> ExprCompiler<'ctx> {
     }
 
     fn compile_binary(&mut self, com: &mut Compiler<'_, 'ctx>, n: &ExprBinary) -> Result<()> {
-        self.compile_expr(com, &n.rhs)?;
-        let rhs = self.stack.pop().unwrap();
-        assert!(self.stack.is_empty());
+        let mut rhs = Self::default();
+        rhs.compile_expr(com, &n.rhs)?;
+        let rhs = rhs.stack.pop().unwrap();
 
         let mut lhs = Self::default();
         lhs.compile_expr(com, &n.lhs)?;
@@ -248,8 +248,9 @@ impl<'ctx> ExprCompiler<'ctx> {
     }
 
     fn compile_cast(&mut self, com: &mut Compiler<'_, 'ctx>, n: &ExprCast) -> Result<()> {
-        self.compile_expr(com, &n.lhs)?;
-        let value = self.stack.pop().unwrap();
+        let mut c = ExprCompiler::default();
+        c.compile_expr(com, &n.lhs)?;
+        let value = c.stack.pop().unwrap();
 
         let src = com
             .type_store
@@ -374,7 +375,15 @@ impl<'ctx> ExprCompiler<'ctx> {
                         &format!("load_{}", n.name.inner),
                     )?
                     .into_struct_value();
-                for i in 0..load.count_fields() {
+
+                let output_len = com
+                    .type_store
+                    .get(llvmvalue.id)
+                    .as_c_type()
+                    .unwrap()
+                    .outputs
+                    .len() as u32;
+                for i in 0..output_len {
                     let field = com.llvm.builder.build_extract_value(
                         load,
                         i,
@@ -396,7 +405,15 @@ impl<'ctx> ExprCompiler<'ctx> {
                     .build_call(llvmfunc.func, &args, &format!("call_{}", n.name.inner))?
                     .as_any_value_enum()
                     .into_struct_value();
-                for i in 0..outputs.count_fields() {
+
+                let output_len = com
+                    .type_store
+                    .get(llvmfunc.id)
+                    .as_c_type()
+                    .unwrap()
+                    .outputs
+                    .len() as u32;
+                for i in 0..output_len {
                     let field = com.llvm.builder.build_extract_value(
                         outputs,
                         i,
