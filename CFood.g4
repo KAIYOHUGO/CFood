@@ -69,7 +69,7 @@ file: decls;
 decls: decl decls | ;
 
 decl: var_decl SEMICOLON
-    | ty_decl  SEMICOLON
+    | ty_decl
     | fn_decl;
 var_decl
     : var_decl_ty var_decl_init;
@@ -141,12 +141,12 @@ branch_stmt
 iter_stmt
     : KW_while PAREN_L expr PAREN_R stmt;
 
-inline_stmts:
-    inline_stmt
+inline_stmts
+    : inline_stmt
     | inline_stmt COMMA inline_stmts;
 
-inline_stmt:
-    | var_decl
+inline_stmt
+    : var_decl
     | expr_stmt
     | let_stmt
     | return_stmt
@@ -182,18 +182,8 @@ expr_logic
     ;
 
 expr_cmp
-    : expr_magic # expr_cmp_pass
-    | lhs=expr_magic cmp_preced_op rhs=expr_cmp # expr_cmp_use
-    ;
-
-expr_magic
-    : expr_call # expr_magic_pass
-    | lhs=magic rhs=expr_magic # expr_magic_use
-    ;
-
-expr_call
-    : expr_add # expr_call_pass
-    | lhs=expr_add rhs=expr_call # expr_call_use
+    : expr_add # expr_cmp_pass
+    | lhs=expr_add cmp_preced_op rhs=expr_cmp # expr_cmp_use
     ;
 
 expr_add
@@ -212,8 +202,18 @@ expr_cast
     ;
 
 expr_unary
-    : atom # expr_unary_pass
+    : expr_magic # expr_unary_pass
     | unary_preced_op rhs=expr_unary # expr_unary_use
+    ;
+
+expr_magic
+    : expr_call # expr_magic_pass
+    | lhs=magic rhs=expr_magic # expr_magic_use
+    ;
+
+expr_call
+    : atom # expr_call_pass
+    | lhs=atom rhs=expr_call # expr_call_use
     ;
 
 atom

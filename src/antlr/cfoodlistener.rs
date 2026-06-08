@@ -327,46 +327,6 @@ where
     /// @param ctx the parse tree
     fn exit_expr_cmp_use<'input: 'arena>(&mut self, _ctx: &Expr_cmp_useContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
 
-    /// Enter a parse tree produced by the {@code expr_magic_pass}
-    /// labeled alternative in {@link CFoodParser#expr_magic}.
-    /// @param ctx the parse tree
-    fn enter_expr_magic_pass<'input: 'arena>(&mut self, _ctx: &Expr_magic_passContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
-
-    /// Exit a parse tree produced by the {@code expr_magic_pass}
-    /// labeled alternative in {@link CFoodParser#expr_magic}.
-    /// @param ctx the parse tree
-    fn exit_expr_magic_pass<'input: 'arena>(&mut self, _ctx: &Expr_magic_passContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
-
-    /// Enter a parse tree produced by the {@code expr_magic_use}
-    /// labeled alternative in {@link CFoodParser#expr_magic}.
-    /// @param ctx the parse tree
-    fn enter_expr_magic_use<'input: 'arena>(&mut self, _ctx: &Expr_magic_useContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
-
-    /// Exit a parse tree produced by the {@code expr_magic_use}
-    /// labeled alternative in {@link CFoodParser#expr_magic}.
-    /// @param ctx the parse tree
-    fn exit_expr_magic_use<'input: 'arena>(&mut self, _ctx: &Expr_magic_useContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
-
-    /// Enter a parse tree produced by the {@code expr_call_pass}
-    /// labeled alternative in {@link CFoodParser#expr_call}.
-    /// @param ctx the parse tree
-    fn enter_expr_call_pass<'input: 'arena>(&mut self, _ctx: &Expr_call_passContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
-
-    /// Exit a parse tree produced by the {@code expr_call_pass}
-    /// labeled alternative in {@link CFoodParser#expr_call}.
-    /// @param ctx the parse tree
-    fn exit_expr_call_pass<'input: 'arena>(&mut self, _ctx: &Expr_call_passContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
-
-    /// Enter a parse tree produced by the {@code expr_call_use}
-    /// labeled alternative in {@link CFoodParser#expr_call}.
-    /// @param ctx the parse tree
-    fn enter_expr_call_use<'input: 'arena>(&mut self, _ctx: &Expr_call_useContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
-
-    /// Exit a parse tree produced by the {@code expr_call_use}
-    /// labeled alternative in {@link CFoodParser#expr_call}.
-    /// @param ctx the parse tree
-    fn exit_expr_call_use<'input: 'arena>(&mut self, _ctx: &Expr_call_useContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
-
     /// Enter a parse tree produced by the {@code expr_add_pass}
     /// labeled alternative in {@link CFoodParser#expr_add}.
     /// @param ctx the parse tree
@@ -446,6 +406,46 @@ where
     /// labeled alternative in {@link CFoodParser#expr_unary}.
     /// @param ctx the parse tree
     fn exit_expr_unary_use<'input: 'arena>(&mut self, _ctx: &Expr_unary_useContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Enter a parse tree produced by the {@code expr_magic_pass}
+    /// labeled alternative in {@link CFoodParser#expr_magic}.
+    /// @param ctx the parse tree
+    fn enter_expr_magic_pass<'input: 'arena>(&mut self, _ctx: &Expr_magic_passContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Exit a parse tree produced by the {@code expr_magic_pass}
+    /// labeled alternative in {@link CFoodParser#expr_magic}.
+    /// @param ctx the parse tree
+    fn exit_expr_magic_pass<'input: 'arena>(&mut self, _ctx: &Expr_magic_passContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Enter a parse tree produced by the {@code expr_magic_use}
+    /// labeled alternative in {@link CFoodParser#expr_magic}.
+    /// @param ctx the parse tree
+    fn enter_expr_magic_use<'input: 'arena>(&mut self, _ctx: &Expr_magic_useContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Exit a parse tree produced by the {@code expr_magic_use}
+    /// labeled alternative in {@link CFoodParser#expr_magic}.
+    /// @param ctx the parse tree
+    fn exit_expr_magic_use<'input: 'arena>(&mut self, _ctx: &Expr_magic_useContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Enter a parse tree produced by the {@code expr_call_pass}
+    /// labeled alternative in {@link CFoodParser#expr_call}.
+    /// @param ctx the parse tree
+    fn enter_expr_call_pass<'input: 'arena>(&mut self, _ctx: &Expr_call_passContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Exit a parse tree produced by the {@code expr_call_pass}
+    /// labeled alternative in {@link CFoodParser#expr_call}.
+    /// @param ctx the parse tree
+    fn exit_expr_call_pass<'input: 'arena>(&mut self, _ctx: &Expr_call_passContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Enter a parse tree produced by the {@code expr_call_use}
+    /// labeled alternative in {@link CFoodParser#expr_call}.
+    /// @param ctx the parse tree
+    fn enter_expr_call_use<'input: 'arena>(&mut self, _ctx: &Expr_call_useContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Exit a parse tree produced by the {@code expr_call_use}
+    /// labeled alternative in {@link CFoodParser#expr_call}.
+    /// @param ctx the parse tree
+    fn exit_expr_call_use<'input: 'arena>(&mut self, _ctx: &Expr_call_useContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
 
     /// Enter a parse tree produced by the {@code atom_apply_list}
     /// labeled alternative in {@link CFoodParser#atom}.

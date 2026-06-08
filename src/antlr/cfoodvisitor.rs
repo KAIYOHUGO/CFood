@@ -174,26 +174,6 @@ where
     /// @param ctx the parse tree
     fn visit_expr_cmp_use(&mut self, ctx: &'arena Expr_cmp_useContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
 
-    /// Visit a parse tree produced by the {@code expr_magic_pass}
-    /// labeled alternative in {@link CFoodParser#expr_magic}.
-    /// @param ctx the parse tree
-    fn visit_expr_magic_pass(&mut self, ctx: &'arena Expr_magic_passContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
-
-    /// Visit a parse tree produced by the {@code expr_magic_use}
-    /// labeled alternative in {@link CFoodParser#expr_magic}.
-    /// @param ctx the parse tree
-    fn visit_expr_magic_use(&mut self, ctx: &'arena Expr_magic_useContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
-
-    /// Visit a parse tree produced by the {@code expr_call_pass}
-    /// labeled alternative in {@link CFoodParser#expr_call}.
-    /// @param ctx the parse tree
-    fn visit_expr_call_pass(&mut self, ctx: &'arena Expr_call_passContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
-
-    /// Visit a parse tree produced by the {@code expr_call_use}
-    /// labeled alternative in {@link CFoodParser#expr_call}.
-    /// @param ctx the parse tree
-    fn visit_expr_call_use(&mut self, ctx: &'arena Expr_call_useContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
-
     /// Visit a parse tree produced by the {@code expr_add_pass}
     /// labeled alternative in {@link CFoodParser#expr_add}.
     /// @param ctx the parse tree
@@ -233,6 +213,26 @@ where
     /// labeled alternative in {@link CFoodParser#expr_unary}.
     /// @param ctx the parse tree
     fn visit_expr_unary_use(&mut self, ctx: &'arena Expr_unary_useContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
+
+    /// Visit a parse tree produced by the {@code expr_magic_pass}
+    /// labeled alternative in {@link CFoodParser#expr_magic}.
+    /// @param ctx the parse tree
+    fn visit_expr_magic_pass(&mut self, ctx: &'arena Expr_magic_passContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
+
+    /// Visit a parse tree produced by the {@code expr_magic_use}
+    /// labeled alternative in {@link CFoodParser#expr_magic}.
+    /// @param ctx the parse tree
+    fn visit_expr_magic_use(&mut self, ctx: &'arena Expr_magic_useContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
+
+    /// Visit a parse tree produced by the {@code expr_call_pass}
+    /// labeled alternative in {@link CFoodParser#expr_call}.
+    /// @param ctx the parse tree
+    fn visit_expr_call_pass(&mut self, ctx: &'arena Expr_call_passContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
+
+    /// Visit a parse tree produced by the {@code expr_call_use}
+    /// labeled alternative in {@link CFoodParser#expr_call}.
+    /// @param ctx the parse tree
+    fn visit_expr_call_use(&mut self, ctx: &'arena Expr_call_useContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
 
     /// Visit a parse tree produced by the {@code atom_apply_list}
     /// labeled alternative in {@link CFoodParser#atom}.
