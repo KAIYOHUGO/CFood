@@ -1,6 +1,6 @@
 use crate::{
     antlr::{cfoodlexer, cfoodparser::*, cfoodvisitor::CFoodVisitor},
-    cst::{span::*, tys::*},
+    cst::{marked::Marked, span::*, tys::*},
 };
 use dbt_antlr4::{
     errors::ANTLRError, parser_rule_context::ParserRuleContext, token::CommonToken, tree::NodeInner,
@@ -72,6 +72,93 @@ impl Parser {
 
         self.spanned.insert(id, start..end);
         id
+    }
+
+    fn get_id_with_marks(
+        &mut self,
+        start_mark: usize,
+        end_mark: usize,
+    ) -> Result<usize, ANTLRError> {
+        let start = self
+            .spanned
+            .get(&start_mark)
+            .map(|span| span.start)
+            .must_some()?;
+        let end = self
+            .spanned
+            .get(&end_mark)
+            .map(|span| span.end)
+            .must_some()?;
+        let id = self.get_id();
+        self.spanned.insert(id, start..end);
+        Ok(id)
+    }
+
+    fn is_logic_op(op: &Op) -> bool {
+        matches!(op, Op::And(_) | Op::Or(_))
+    }
+
+    fn is_cmp_op(op: &Op) -> bool {
+        matches!(
+            op,
+            Op::Ne(_) | Op::Eq(_) | Op::Lt(_) | Op::Gt(_) | Op::Le(_) | Op::Ge(_)
+        )
+    }
+
+    fn is_add_op(op: &Op) -> bool {
+        matches!(op, Op::Add(_) | Op::Sub(_))
+    }
+
+    fn is_mul_op(op: &Op) -> bool {
+        matches!(op, Op::Mul(_) | Op::Div(_) | Op::OpMod(_) | Op::PEO(_))
+    }
+
+    fn fold_binary_expr_left(
+        &mut self,
+        root_id: usize,
+        lhs: Expr,
+        op: Op,
+        rhs: Expr,
+        same_level: fn(&Op) -> bool,
+    ) -> Result<Expr, ANTLRError> {
+        let mut operands = vec![lhs];
+        let mut ops = vec![op];
+        let mut tail = rhs;
+
+        loop {
+            match tail {
+                Expr::Binary(expr_binary) if same_level(&expr_binary.op) => {
+                    operands.push(*expr_binary.lhs);
+                    ops.push(expr_binary.op);
+                    tail = *expr_binary.rhs;
+                }
+                expr => {
+                    operands.push(expr);
+                    break;
+                }
+            }
+        }
+
+        let mut expr = operands.remove(0);
+        let op_count = ops.len();
+
+        for (idx, (op, rhs)) in ops.into_iter().zip(operands.into_iter()).enumerate() {
+            let id = if idx + 1 == op_count {
+                root_id
+            } else {
+                self.get_id_with_marks(expr.mark(), rhs.mark())?
+            };
+
+            expr = ExprBinary {
+                id,
+                op,
+                lhs: Box::new(expr),
+                rhs: Box::new(rhs),
+            }
+            .into();
+        }
+
+        Ok(expr)
     }
 }
 
@@ -578,31 +665,24 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
         &mut self,
         ctx: &'arena Expr_logic_useContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
-        let lhs = Box::new(
-            self.visit_node(ctx.expr_cmp().must_some()?.as_node())?
-                .pop()
-                .must_some()?
-                .expect_expr(),
-        );
-        let rhs = Box::new(
-            self.visit_node(ctx.expr_logic().must_some()?.as_node())?
-                .pop()
-                .must_some()?
-                .expect_expr(),
-        );
+        let lhs = self
+            .visit_node(ctx.expr_cmp().must_some()?.as_node())?
+            .pop()
+            .must_some()?
+            .expect_expr();
+        let rhs = self
+            .visit_node(ctx.expr_logic().must_some()?.as_node())?
+            .pop()
+            .must_some()?
+            .expect_expr();
         let op = self
             .visit_logic_preced_op(ctx.logic_preced_op().must_some()?)?
             .pop()
             .must_some()?
             .expect_op();
 
-        let expr: Expr = ExprBinary {
-            id: self.get_id_with_ctx(ctx),
-            op,
-            lhs,
-            rhs,
-        }
-        .into();
+        let id = self.get_id_with_ctx(ctx);
+        let expr = self.fold_binary_expr_left(id, lhs, op, rhs, Self::is_logic_op)?;
 
         Ok(vec![expr.into()])
     }
@@ -611,31 +691,24 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
         &mut self,
         ctx: &'arena Expr_cmp_useContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
-        let lhs = Box::new(
-            self.visit_node(ctx.expr_magic().must_some()?.as_node())?
-                .pop()
-                .must_some()?
-                .expect_expr(),
-        );
-        let rhs = Box::new(
-            self.visit_node(ctx.expr_cmp().must_some()?.as_node())?
-                .pop()
-                .must_some()?
-                .expect_expr(),
-        );
+        let lhs = self
+            .visit_node(ctx.expr_add().must_some()?.as_node())?
+            .pop()
+            .must_some()?
+            .expect_expr();
+        let rhs = self
+            .visit_node(ctx.expr_cmp().must_some()?.as_node())?
+            .pop()
+            .must_some()?
+            .expect_expr();
         let op = self
             .visit_cmp_preced_op(ctx.cmp_preced_op().must_some()?)?
             .pop()
             .must_some()?
             .expect_op();
 
-        let expr: Expr = ExprBinary {
-            id: self.get_id_with_ctx(ctx),
-            op,
-            lhs,
-            rhs,
-        }
-        .into();
+        let id = self.get_id_with_ctx(ctx);
+        let expr = self.fold_binary_expr_left(id, lhs, op, rhs, Self::is_cmp_op)?;
 
         Ok(vec![expr.into()])
     }
@@ -673,7 +746,7 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
         ctx: &'arena Expr_call_useContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
         let lhs = Box::new(
-            self.visit_node(ctx.expr_add().must_some()?.as_node())?
+            self.visit_node(ctx.atom().must_some()?.as_node())?
                 .pop()
                 .must_some()?
                 .expect_expr(),
@@ -699,31 +772,24 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
         &mut self,
         ctx: &'arena Expr_add_useContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
-        let lhs = Box::new(
-            self.visit_node(ctx.expr_mul().must_some()?.as_node())?
-                .pop()
-                .must_some()?
-                .expect_expr(),
-        );
-        let rhs = Box::new(
-            self.visit_node(ctx.expr_add().must_some()?.as_node())?
-                .pop()
-                .must_some()?
-                .expect_expr(),
-        );
+        let lhs = self
+            .visit_node(ctx.expr_mul().must_some()?.as_node())?
+            .pop()
+            .must_some()?
+            .expect_expr();
+        let rhs = self
+            .visit_node(ctx.expr_add().must_some()?.as_node())?
+            .pop()
+            .must_some()?
+            .expect_expr();
         let op = self
             .visit_add_preced_op(ctx.add_preced_op().must_some()?)?
             .pop()
             .must_some()?
             .expect_op();
 
-        let expr: Expr = ExprBinary {
-            id: self.get_id_with_ctx(ctx),
-            op,
-            lhs,
-            rhs,
-        }
-        .into();
+        let id = self.get_id_with_ctx(ctx);
+        let expr = self.fold_binary_expr_left(id, lhs, op, rhs, Self::is_add_op)?;
 
         Ok(vec![expr.into()])
     }
@@ -732,31 +798,24 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
         &mut self,
         ctx: &'arena Expr_mul_useContext<'input, 'arena, CommonToken<'input>>,
     ) -> Result<Self::Return, ANTLRError> {
-        let lhs = Box::new(
-            self.visit_node(ctx.expr_cast().must_some()?.as_node())?
-                .pop()
-                .must_some()?
-                .expect_expr(),
-        );
-        let rhs = Box::new(
-            self.visit_node(ctx.expr_mul().must_some()?.as_node())?
-                .pop()
-                .must_some()?
-                .expect_expr(),
-        );
+        let lhs = self
+            .visit_node(ctx.expr_cast().must_some()?.as_node())?
+            .pop()
+            .must_some()?
+            .expect_expr();
+        let rhs = self
+            .visit_node(ctx.expr_mul().must_some()?.as_node())?
+            .pop()
+            .must_some()?
+            .expect_expr();
         let op = self
             .visit_mul_preced_op(ctx.mul_preced_op().must_some()?)?
             .pop()
             .must_some()?
             .expect_op();
 
-        let expr: Expr = ExprBinary {
-            id: self.get_id_with_ctx(ctx),
-            op,
-            lhs,
-            rhs,
-        }
-        .into();
+        let id = self.get_id_with_ctx(ctx);
+        let expr = self.fold_binary_expr_left(id, lhs, op, rhs, Self::is_mul_op)?;
 
         Ok(vec![expr.into()])
     }
