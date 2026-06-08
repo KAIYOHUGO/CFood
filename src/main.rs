@@ -69,19 +69,21 @@ fn main() -> Result<()> {
     })?;
 
     let mut tlt = TLT::default();
-    if tlt.check_file(&cst).is_err() || !tlt.errors.is_empty() {
-        for e in tlt.errors {
-            let diag = Report::new(e.to_diagnostic(&span_store)).with_source_code(data.clone());
-            println!("{:?}", diag);
-        }
-
-        bail!("Compile fail due to the error");
-    }
+    let is_check_err = tlt.check_file(&cst).is_err();
 
     if cli.emit_cst {
         let mut cst_to_sexpr = CstToSexpr::new(&span_store, vec![&tlt]);
         let s = cst_to_sexpr.visit_file(&cst)?;
         print!("{}", s);
+    }
+
+    if is_check_err || !tlt.errors.is_empty() {
+        for e in tlt.errors {
+            let diag = Report::new(e.to_diagnostic(&span_store)).with_source_code(data.clone());
+            eprintln!("{:?}", diag);
+        }
+
+        bail!("Compile fail due to the error");
     }
 
     let context = Context::create();

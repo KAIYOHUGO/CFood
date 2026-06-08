@@ -65,7 +65,7 @@ impl<'a> CstToSexpr<'a> {
         self.1
             .iter()
             .filter_map(|x| x.get_info(cst_id))
-            .fold("".to_owned(), |acc, x| format!("{acc} {x}"))
+            .fold(format!("(id {cst_id})"), |acc, x| format!("{acc} {x}"))
     }
 
     fn extra_marked<T: Marked>(&self, t: &T) -> String {

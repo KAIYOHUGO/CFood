@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use anyhow::Context;
 use from_variant::FromVariant;
 use inkwell::{
     types::{FunctionType, StructType},
@@ -32,7 +33,11 @@ impl<'ctx> LLVMVarStore<'ctx> {
     pub fn get(&self, cst_id: usize) -> &LLVMVar<'ctx> {
         match self.map.get(&cst_id) {
             Some(var) => var,
-            None => self.map.get(&self.refer_map[&cst_id]).unwrap(),
+            None => self
+                .map
+                .get(&self.refer_map[&cst_id])
+                .with_context(|| format!("Cannot find var with cst id: {cst_id}"))
+                .unwrap(),
         }
     }
     pub fn get_mut(&mut self, cst_id: usize) -> &mut LLVMVar<'ctx> {
