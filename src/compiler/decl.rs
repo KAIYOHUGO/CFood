@@ -8,7 +8,7 @@ use crate::{
 use anyhow::Result;
 use inkwell::{module::Linkage, types::BasicMetadataTypeEnum};
 
-pub fn compile_decl_func(com: &mut Compiler, n: &DeclFunc) -> Result<()> {
+pub fn hoist_decl_func(com: &mut Compiler, n: &DeclFunc) -> Result<()> {
     let id = com.type_store.get_type_id(n.id).unwrap();
     let ty = com.type_store.get(id).as_c_type().unwrap();
     let inputs: Vec<BasicMetadataTypeEnum> = ty
@@ -25,11 +25,34 @@ pub fn compile_decl_func(com: &mut Compiler, n: &DeclFunc) -> Result<()> {
     let ret_ty = com.llvm.context.struct_type(&outputs, false);
     let ty = ret_ty.fn_type(&inputs, false);
     let func = com.llvm.module.add_function(&n.name.inner, ty, None);
+    let func = LLVMFunc { id, ty, func };
+    com.var_store.new_func(n.id, func.clone());
+    Ok(())
+}
 
-    let entry = com.llvm.context.append_basic_block(func, "entry");
+pub fn compile_decl_func(com: &mut Compiler, n: &DeclFunc) -> Result<()> {
+    // let id = com.type_store.get_type_id(n.id).unwrap();
+    // let ty = com.type_store.get(id).as_c_type().unwrap();
+    // let inputs: Vec<BasicMetadataTypeEnum> = ty
+    //     .inputs
+    //     .iter()
+    //     .map(|x| com.to_llvm_type(x.kind).into())
+    //     .collect();
+    // let outputs: Vec<_> = ty
+    //     .outputs
+    //     .iter()
+    //     .map(|x| com.to_llvm_type(x.kind))
+    //     .collect();
+
+    // let ret_ty = com.llvm.context.struct_type(&outputs, false);
+    // let ty = ret_ty.fn_type(&inputs, false);
+    // let func = com.llvm.module.add_function(&n.name.inner, ty, None);
+    let func = com.var_store.get(n.id).clone().expect_func();
+
+    let entry = com.llvm.context.append_basic_block(func.func, "entry");
     com.llvm.builder.position_at_end(entry);
     // declare the params
-    let mut param_values = func.get_params().into_iter().rev();
+    let mut param_values = func.func.get_params().into_iter().rev();
     for param in n.params.iter().rev() {
         let id = com.type_store.get_type_id(param.id).unwrap();
         let cty = com.type_store.get(id).as_c_type().unwrap();
@@ -60,14 +83,15 @@ pub fn compile_decl_func(com: &mut Compiler, n: &DeclFunc) -> Result<()> {
         com.var_store.new_value(param.id, value);
     }
 
-    let func = LLVMFunc { id, ty, func };
-    com.var_store.new_func(n.id, func.clone());
+    let ret = func.ty.get_return_type().unwrap().into_struct_type();
+    // let func = LLVMFunc { id, ty, func };
+    // com.var_store.new_func(n.id, func.clone());
     com.current_func = Some(func);
 
     com.compile_stmt_block(&n.block)?;
 
     com.current_func = None;
-    com.llvm.builder.build_return(Some(&ret_ty.const_zero()))?;
+    com.llvm.builder.build_return(Some(&ret.const_zero()))?;
 
     Ok(())
 }

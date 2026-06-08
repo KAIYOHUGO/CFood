@@ -140,6 +140,13 @@ pub struct LLVMCtx<'a, 'ctx> {
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
     pub(super) fn compile_file(&mut self, n: &File) -> Result<()> {
         for decl in &n.decls {
+            match decl {
+                Decl::Func(decl_func) => decl::hoist_decl_func(self, decl_func)?,
+                _ => {}
+            }
+        }
+
+        for decl in &n.decls {
             self.compile_decl(decl)?;
         }
         Ok(())
