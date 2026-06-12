@@ -70,6 +70,7 @@ impl<'ctx> ExprCompiler<'ctx> {
             Expr::Lit(expr_lit) => self.compile_lit(com, expr_lit)?,
             Expr::Var(expr_var) => self.compile_var(com, expr_var)?,
             Expr::Refer(expr_refer) => self.compile_refer(com, expr_refer)?,
+            Expr::Empty(_) => {}
         }
         Ok(())
     }

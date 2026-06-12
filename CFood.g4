@@ -255,7 +255,8 @@ unary_preced_op
     | NOT;
 
 apply_list
-    : PAREN_L args PAREN_R;
+    : PAREN_L PAREN_R
+    | PAREN_L args PAREN_R;
 
 args
     : expr COMMA args

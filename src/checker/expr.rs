@@ -24,6 +24,10 @@ pub fn check_expr(tlt: &mut TLT, n: &Expr) -> Result<()> {
         Expr::Lit(lit) => check_lit(tlt, lit),
         Expr::Var(expr_var) => check_expr_var(tlt, expr_var),
         Expr::Refer(expr_refer) => check_expr_refer(tlt, expr_refer),
+        Expr::Empty(id) => {
+            tlt.type_store.void(id.0);
+            Ok(())
+        }
     }
 }
 

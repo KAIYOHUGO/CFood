@@ -119,6 +119,7 @@ impl Marked for Expr {
             Expr::Lit(s) => s.mark(),
             Expr::Var(s) => s.mark(),
             Expr::Refer(s) => s.mark(),
+            Expr::Empty(s) => s.mark(),
         }
     }
 }

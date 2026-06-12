@@ -1008,6 +1008,19 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
         Ok(vec![AllType::UnaryOp(op)])
     }
 
+    fn visit_apply_list(
+        &mut self,
+        ctx: &'arena Apply_listContext<'input, 'arena, CommonToken<'input>>,
+    ) -> Result<Self::Return, ANTLRError> {
+        let child = self.visit_children(ctx)?.pop();
+        match child {
+            Some(x) => Ok(vec![x]),
+            None => {
+                let empty: Expr = Id(self.get_id_with_ctx(ctx)).into();
+                Ok(vec![empty.into()])
+            }
+        }
+    }
     fn visit_args(
         &mut self,
         ctx: &'arena ArgsContext<'input, 'arena, CommonToken<'input>>,

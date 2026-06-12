@@ -58,6 +58,7 @@ pub enum Expr {
     Lit(ExprLit),
     Var(ExprVar),
     Refer(ExprRefer),
+    Empty(Id),
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]

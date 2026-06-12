@@ -207,17 +207,17 @@ impl VisitAble for Expr {
         T: Visitor,
     {
         match self {
-            Expr::Binary(x) => ctx.visit_expr_binary(x)?,
-            Expr::Unary(x) => ctx.visit_expr_unary(x)?,
-            Expr::Assign(x) => ctx.visit_expr_assign(x)?,
-            Expr::Call(x) => ctx.visit_expr_call(x)?,
-            Expr::Cast(x) => ctx.visit_expr_cast(x)?,
-            Expr::Magic(x) => ctx.visit_expr_magic(x)?,
-            Expr::Lit(x) => ctx.visit_lit(x)?,
-            Expr::Var(x) => ctx.visit_expr_var(x)?,
-            Expr::Refer(x) => ctx.visit_expr_refer(x)?,
-        };
-        Ok(T::Res::default())
+            Expr::Binary(x) => ctx.visit_expr_binary(x),
+            Expr::Unary(x) => ctx.visit_expr_unary(x),
+            Expr::Assign(x) => ctx.visit_expr_assign(x),
+            Expr::Call(x) => ctx.visit_expr_call(x),
+            Expr::Cast(x) => ctx.visit_expr_cast(x),
+            Expr::Magic(x) => ctx.visit_expr_magic(x),
+            Expr::Lit(x) => ctx.visit_lit(x),
+            Expr::Var(x) => ctx.visit_expr_var(x),
+            Expr::Refer(x) => ctx.visit_expr_refer(x),
+            Expr::Empty(_) => Ok(T::Res::default()),
+        }
     }
 }
 
@@ -377,15 +377,14 @@ impl VisitAble for Stmt {
         T: Visitor,
     {
         match self {
-            Stmt::DeclVar(x) => ctx.visit_decl_var(x)?,
-            Stmt::Branch(x) => ctx.visit_stmt_branch(x)?,
-            Stmt::Iter(x) => ctx.visit_stmt_iter(x)?,
-            Stmt::Block(x) => ctx.visit_stmt_block(x)?,
-            Stmt::AutoLet(x) => ctx.visit_stmt_let(x)?,
-            Stmt::Ret(x) => ctx.visit_stmt_ret(x)?,
-            Stmt::Expr(x) => ctx.visit_expr(x)?,
-        };
-        Ok(T::Res::default())
+            Stmt::DeclVar(x) => ctx.visit_decl_var(x),
+            Stmt::Branch(x) => ctx.visit_stmt_branch(x),
+            Stmt::Iter(x) => ctx.visit_stmt_iter(x),
+            Stmt::Block(x) => ctx.visit_stmt_block(x),
+            Stmt::AutoLet(x) => ctx.visit_stmt_let(x),
+            Stmt::Ret(x) => ctx.visit_stmt_ret(x),
+            Stmt::Expr(x) => ctx.visit_expr(x),
+        }
     }
 }
 
