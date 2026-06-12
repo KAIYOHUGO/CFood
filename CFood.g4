@@ -14,6 +14,9 @@ KW_type: 'type';
 KW_let: 'let';
 KW_as: 'as';
 
+LIT_true: 'true';
+LIT_false: 'false';
+
 
 TY_int: 'int';
 TY_float: 'float';
@@ -104,6 +107,8 @@ lit
     : INT    # lit_int
     | FLOAT  # lit_float
     | CONSTR # lit_constr
+    | LIT_true # lit_true
+    | LIT_false # lit_false
     ;
 
 tys

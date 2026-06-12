@@ -127,6 +127,26 @@ where
     /// @param ctx the parse tree
     fn exit_lit_constr<'input: 'arena>(&mut self, _ctx: &Lit_constrContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
 
+    /// Enter a parse tree produced by the {@code lit_true}
+    /// labeled alternative in {@link CFoodParser#lit}.
+    /// @param ctx the parse tree
+    fn enter_lit_true<'input: 'arena>(&mut self, _ctx: &Lit_trueContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Exit a parse tree produced by the {@code lit_true}
+    /// labeled alternative in {@link CFoodParser#lit}.
+    /// @param ctx the parse tree
+    fn exit_lit_true<'input: 'arena>(&mut self, _ctx: &Lit_trueContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Enter a parse tree produced by the {@code lit_false}
+    /// labeled alternative in {@link CFoodParser#lit}.
+    /// @param ctx the parse tree
+    fn enter_lit_false<'input: 'arena>(&mut self, _ctx: &Lit_falseContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Exit a parse tree produced by the {@code lit_false}
+    /// labeled alternative in {@link CFoodParser#lit}.
+    /// @param ctx the parse tree
+    fn exit_lit_false<'input: 'arena>(&mut self, _ctx: &Lit_falseContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
     /// Enter a parse tree produced by {@link CFoodParser#tys}.
     /// @param ctx the parse tree
     fn enter_tys<'input: 'arena>(&mut self, _ctx: &TysContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }

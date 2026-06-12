@@ -74,6 +74,16 @@ where
     /// @param ctx the parse tree
     fn visit_lit_constr(&mut self, ctx: &'arena Lit_constrContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
 
+    /// Visit a parse tree produced by the {@code lit_true}
+    /// labeled alternative in {@link CFoodParser#lit}.
+    /// @param ctx the parse tree
+    fn visit_lit_true(&mut self, ctx: &'arena Lit_trueContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
+
+    /// Visit a parse tree produced by the {@code lit_false}
+    /// labeled alternative in {@link CFoodParser#lit}.
+    /// @param ctx the parse tree
+    fn visit_lit_false(&mut self, ctx: &'arena Lit_falseContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }
+
     /// Visit a parse tree produced by {@link CFoodParser#tys}.
     /// @param ctx the parse tree
     fn visit_tys(&mut self, ctx: &'arena TysContext<'input, 'arena, Tok>) -> Result<Self::Return, ANTLRError> { self.visit_children(ctx) }

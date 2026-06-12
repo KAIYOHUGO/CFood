@@ -380,6 +380,7 @@ impl<'a> Visitor for CstToSexpr<'a> {
             ExprLit::Int(t) => format!("(int {span}{} {})", self.extra(t.id), t.inner),
             ExprLit::Float(t) => format!("(float {span}{} {})", self.extra(t.id), t.inner),
             ExprLit::ConStr(t) => format!("(str {})", self.atom_str(t)),
+            ExprLit::Bool(t) => format!("(bool {span}{} {})", self.extra(t.id), t.inner),
         };
         Ok(s)
     }

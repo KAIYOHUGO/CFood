@@ -449,6 +449,7 @@ pub fn check_lit(tlt: &mut TLT, n: &ExprLit) -> Result<()> {
         ExprLit::Int(token) => tlt.type_store.prim(PrimKind::Int, token.id),
         ExprLit::Float(token) => tlt.type_store.prim(PrimKind::Float, token.id),
         ExprLit::ConStr(token) => tlt.type_store.prim(PrimKind::ConStr, token.id),
+        ExprLit::Bool(token) => tlt.type_store.prim(PrimKind::Bool, token.id),
     };
     Ok(())
 }

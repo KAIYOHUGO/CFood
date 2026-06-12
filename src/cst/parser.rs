@@ -1133,6 +1133,32 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
         Ok(vec![lit.into()])
     }
 
+    fn visit_lit_true(
+        &mut self,
+        ctx: &'arena Lit_trueContext<'input, 'arena, CommonToken<'input>>,
+    ) -> Result<Self::Return, ANTLRError> {
+        let lit: ExprLit = Token {
+            id: self.get_id_with_ctx(ctx),
+            inner: true,
+        }
+        .into();
+
+        Ok(vec![lit.into()])
+    }
+
+    fn visit_lit_false(
+        &mut self,
+        ctx: &'arena Lit_falseContext<'input, 'arena, CommonToken<'input>>,
+    ) -> Result<Self::Return, ANTLRError> {
+        let lit: ExprLit = Token {
+            id: self.get_id_with_ctx(ctx),
+            inner: false,
+        }
+        .into();
+
+        Ok(vec![lit.into()])
+    }
+
     fn aggregate_results(
         &self,
         mut aggregate: Self::Return,

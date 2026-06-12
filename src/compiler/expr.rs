@@ -536,6 +536,13 @@ impl<'ctx> ExprCompiler<'ctx> {
                     .build_global_string_ptr(&token.inner, "inline_str")?;
                 self.stack.push(value.as_pointer_value().into());
             }
+            ExprLit::Bool(token) => {
+                let value = com
+                    .to_llvm_type(PrimKind::Bool)
+                    .into_int_type()
+                    .const_int(token.inner.into(), false);
+                self.stack.push(value.into());
+            }
         }
         Ok(())
     }

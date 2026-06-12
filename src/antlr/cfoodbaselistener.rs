@@ -180,6 +180,30 @@ pub trait CFoodBaseListener<'arena>:
      * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
      * @param ctx the parse tree
 ,      */
+    fn enter_lit_true(&mut self, _ctx: &Lit_trueContext<'input, 'arena>) {}
+    /**
+     * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
+     * @param ctx the parse tree
+     */
+    fn exit_lit_true(&mut self, _ctx: &Lit_trueContext<'input, 'arena>) {}
+
+
+    /**
+     * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
+     * @param ctx the parse tree
+,      */
+    fn enter_lit_false(&mut self, _ctx: &Lit_falseContext<'input, 'arena>) {}
+    /**
+     * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
+     * @param ctx the parse tree
+     */
+    fn exit_lit_false(&mut self, _ctx: &Lit_falseContext<'input, 'arena>) {}
+
+
+    /**
+     * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
+     * @param ctx the parse tree
+,      */
     fn enter_tys(&mut self, _ctx: &TysContext<'input, 'arena>) {}
     /**
      * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.

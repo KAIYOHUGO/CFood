@@ -93,6 +93,7 @@ impl Marked for ExprLit {
             ExprLit::Int(s) => s.mark(),
             ExprLit::Float(s) => s.mark(),
             ExprLit::ConStr(s) => s.mark(),
+            ExprLit::Bool(s) => s.mark(),
         }
     }
 }

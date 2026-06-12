@@ -158,6 +158,7 @@ pub enum ExprLit {
     Int(Token<i64>),
     Float(Token<f64>),
     ConStr(Token<String>),
+    Bool(Token<bool>),
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
