@@ -62,7 +62,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         let f64_ty = llvm.context.f64_type();
         let power_both_side = llvm.module.add_function(
-            "power_both_side",
+            "swl_power_both_side",
             f64_ty.fn_type(&[f64_ty.into(), f64_ty.into()], false),
             None,
         );
