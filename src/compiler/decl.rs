@@ -27,7 +27,7 @@ pub fn hoist_decl_func(com: &mut Compiler, n: &DeclFunc) -> Result<()> {
     let ty = ret_ty.fn_type(&inputs, false);
     let func = com.llvm.module.add_function(&n.name.inner, ty, None);
     let func = LLVMFunc { id, ty, func };
-    com.var_store.new_func(n.id, func.clone());
+    com.var_store.new_func(n.id, func);
     Ok(())
 }
 

@@ -238,7 +238,9 @@ pub fn check_expr_unary(tlt: &mut TLT, n: &ExprUnary) -> Result<()> {
 
             let kind = rhs.outputs[0].kind;
             let valid = match n.op {
-                UnaryOp::Add(_) | UnaryOp::Sub(_) => matches!(kind, PrimKind::Int | PrimKind::Float),
+                UnaryOp::Add(_) | UnaryOp::Sub(_) => {
+                    matches!(kind, PrimKind::Int | PrimKind::Float)
+                }
                 UnaryOp::Not(_) => kind == PrimKind::Bool,
             };
 
@@ -294,31 +296,43 @@ pub fn check_expr_cast(tlt: &mut TLT, n: &ExprCast) -> Result<()> {
         return Ok(());
     };
 
-    let can_cast = outputs.len() == 1
-        && match (lhs, outputs[0].kind) {
-            (AType::CType(ctype), kind) => {
-                if ctype.outputs.len() != 1 {
-                    false
-                } else {
-                    match (ctype.outputs[0].kind, kind) {
-                        (PrimKind::Int, PrimKind::Float)
-                        | (PrimKind::Float, PrimKind::Int)
-                        | (PrimKind::Bool, PrimKind::Int)
-                        | (PrimKind::Int, PrimKind::Bool) => true,
-                        (a, b) => a == b,
+    let can_cast = !outputs.is_empty()
+        && match n.is_refer {
+            true => lhs.as_c_type().is_some_and(|x| {
+                x.inputs.is_empty() && x.outputs.len() == 1 && x.outputs[0].kind.is_int()
+            }),
+            false => match (lhs, outputs[0].kind) {
+                (AType::CType(ctype), kind) => {
+                    if ctype.outputs.len() != 1 {
+                        false
+                    } else {
+                        match (ctype.outputs[0].kind, kind) {
+                            (PrimKind::Int, PrimKind::Float)
+                            | (PrimKind::Float, PrimKind::Int)
+                            | (PrimKind::Bool, PrimKind::Int)
+                            | (PrimKind::Int, PrimKind::Bool) => true,
+                            (a, b) => a == b,
+                        }
                     }
                 }
-            }
-            (AType::Unknown(_), PrimKind::Int) | (AType::Unknown(_), PrimKind::Float) => true,
-            _ => false,
+                (AType::Unknown(_), PrimKind::Int) | (AType::Unknown(_), PrimKind::Float) => true,
+                _ => false,
+            },
         };
 
     if !can_cast {
+        let outputs = outputs.iter().fold("".to_owned(), |acc, x| {
+            if acc.is_empty() {
+                x.to_string()
+            } else {
+                format!("{acc}, {x}")
+            }
+        });
         tlt.errors.push(CFoodError {
             message: "Invalid type for casting".to_owned(),
             labels: vec![CFoodErrorLabel {
                 cst_id: n.rhs.mark(),
-                label: Some(format!("operand has type `{}`", outputs[0])),
+                label: Some(format!("operand has type `{}`", outputs)),
             }],
             ..Default::default()
         });

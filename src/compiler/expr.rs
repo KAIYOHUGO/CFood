@@ -253,57 +253,96 @@ impl<'ctx> ExprCompiler<'ctx> {
         c.compile_expr(com, &n.lhs)?;
         let value = c.stack.pop().unwrap();
 
-        let src = com
-            .type_store
-            .get(com.type_store.get_type_id(n.lhs.mark()).unwrap())
-            .as_c_type()
-            .unwrap()
-            .outputs[0]
-            .kind;
-        let dst = com
-            .type_store
-            .get(com.type_store.get_type_id(n.id).unwrap())
-            .as_c_type()
-            .unwrap()
-            .outputs[0]
-            .kind;
+        match n.is_refer {
+            true => {
+                let ty = com
+                    .type_store
+                    .get(com.type_store.get_type_id(n.mark()).unwrap())
+                    .as_c_type()
+                    .unwrap();
 
-        let value = match (src, dst) {
-            (PrimKind::Int, PrimKind::Int)
-            | (PrimKind::Float, PrimKind::Float)
-            | (PrimKind::Bool, PrimKind::Bool)
-            | (PrimKind::ConStr, PrimKind::ConStr) => value,
-            (PrimKind::Int, PrimKind::Float) => com
-                .llvm
-                .builder
-                .build_signed_int_to_float(
-                    value.into_int_value(),
-                    com.to_llvm_type(PrimKind::Float).into_float_type(),
-                    "int_to_float",
-                )?
-                .into(),
-            (PrimKind::Float, PrimKind::Int) => com
-                .llvm
-                .builder
-                .build_float_to_signed_int(
-                    value.into_float_value(),
-                    com.to_llvm_type(PrimKind::Int).into_int_type(),
-                    "float_to_int",
-                )?
-                .into(),
-            (PrimKind::Bool, PrimKind::Int) => com
-                .llvm
-                .builder
-                .build_int_z_extend(
-                    value.into_int_value(),
-                    com.to_llvm_type(PrimKind::Int).into_int_type(),
-                    "bool_to_int",
-                )?
-                .into(),
-            _ => unreachable!(),
-        };
+                let output_ty: Vec<_> = ty
+                    .outputs
+                    .iter()
+                    .map(|x| com.to_llvm_type(x.kind))
+                    .collect();
 
-        self.stack.push(value);
+                let output_len = output_ty.len() as u32;
+                let output_ty = com.llvm.context.struct_type(&output_ty, false);
+
+                let ptr = com.llvm.builder.build_int_to_ptr(
+                    value.into_int_value(),
+                    com.llvm.context.ptr_type(Default::default()),
+                    "cast_ptr",
+                )?;
+                let load = com
+                    .llvm
+                    .builder
+                    .build_load(output_ty, ptr, &format!("cast_load"))?
+                    .into_struct_value();
+                for i in 0..output_len {
+                    let field = com.llvm.builder.build_extract_value(
+                        load,
+                        i,
+                        &format!("cast_field_{}", i),
+                    )?;
+                    self.stack.push(field);
+                }
+            }
+            false => {
+                let src = com
+                    .type_store
+                    .get(com.type_store.get_type_id(n.lhs.mark()).unwrap())
+                    .as_c_type()
+                    .unwrap()
+                    .outputs[0]
+                    .kind;
+                let dst = com
+                    .type_store
+                    .get(com.type_store.get_type_id(n.id).unwrap())
+                    .as_c_type()
+                    .unwrap()
+                    .outputs[0]
+                    .kind;
+
+                let value = match (src, dst) {
+                    (PrimKind::Int, PrimKind::Int)
+                    | (PrimKind::Float, PrimKind::Float)
+                    | (PrimKind::Bool, PrimKind::Bool)
+                    | (PrimKind::ConStr, PrimKind::ConStr) => value,
+                    (PrimKind::Int, PrimKind::Float) => com
+                        .llvm
+                        .builder
+                        .build_signed_int_to_float(
+                            value.into_int_value(),
+                            com.to_llvm_type(PrimKind::Float).into_float_type(),
+                            "int_to_float",
+                        )?
+                        .into(),
+                    (PrimKind::Float, PrimKind::Int) => com
+                        .llvm
+                        .builder
+                        .build_float_to_signed_int(
+                            value.into_float_value(),
+                            com.to_llvm_type(PrimKind::Int).into_int_type(),
+                            "float_to_int",
+                        )?
+                        .into(),
+                    (PrimKind::Bool, PrimKind::Int) => com
+                        .llvm
+                        .builder
+                        .build_int_z_extend(
+                            value.into_int_value(),
+                            com.to_llvm_type(PrimKind::Int).into_int_type(),
+                            "bool_to_int",
+                        )?
+                        .into(),
+                    _ => unreachable!(),
+                };
+                self.stack.push(value);
+            }
+        }
+
         Ok(())
     }
 

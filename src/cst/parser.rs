@@ -840,6 +840,38 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
             id: self.get_id_with_ctx(ctx),
             lhs,
             rhs,
+            is_refer: false,
+        }
+        .into();
+
+        Ok(vec![expr.into()])
+    }
+
+    fn visit_expr_cast_refer_use(
+        &mut self,
+        ctx: &'arena Expr_cast_refer_useContext<
+            'input,
+            'arena,
+            dbt_antlr4::token::TokenImpl<'input, &'input str>,
+        >,
+    ) -> Result<Self::Return, ANTLRError> {
+        let lhs = Box::new(
+            self.visit_node(ctx.expr_unary().must_some()?.as_node())?
+                .pop()
+                .must_some()?
+                .expect_expr(),
+        );
+        let rhs = self
+            .visit_node(ctx.ty_kind().must_some()?.as_node())?
+            .pop()
+            .must_some()?
+            .expect_kind();
+
+        let expr: Expr = ExprCast {
+            id: self.get_id_with_ctx(ctx),
+            lhs,
+            rhs,
+            is_refer: true,
         }
         .into();
 

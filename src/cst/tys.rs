@@ -117,6 +117,7 @@ pub struct ExprCast {
     pub id: usize,
     pub lhs: Box<Expr>,
     pub rhs: Kind,
+    pub is_refer: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]

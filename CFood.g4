@@ -199,6 +199,7 @@ expr_mul
 expr_cast
     : expr_unary # expr_cast_pass
     | lhs=expr_unary KW_as rhs=ty_kind # expr_cast_use
+    | lhs=expr_unary KW_as REFER rhs=ty_kind # expr_cast_refer_use
     ;
 
 expr_unary
