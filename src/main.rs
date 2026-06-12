@@ -1,5 +1,6 @@
 use cfood::{
     antlr::*,
+    buildin::{build_buildin_type, buildin_type},
     checker::TLT,
     compiler::{Compiler, LLVMCtx},
     cst::{CstToSexpr, parse_to_cst, visitor::Visitor},
@@ -69,6 +70,7 @@ fn main() -> Result<()> {
     })?;
 
     let mut tlt = TLT::default();
+    let buildin_type = tlt.add_buildin_funcs(buildin_type().into_iter());
     let is_check_err = tlt.check_file(&cst).is_err();
 
     if cli.emit_cst {
@@ -83,7 +85,7 @@ fn main() -> Result<()> {
             eprintln!("{:?}", diag);
         }
 
-        bail!("Compile fail due to the error");
+        bail!("Compile fail due to type error");
     }
 
     let context = Context::create();
@@ -99,6 +101,7 @@ fn main() -> Result<()> {
         tlt.refer_map,
         tlt.type_store,
     )?;
+    build_buildin_type(&mut compiler, buildin_type);
 
     compiler.compile(&cst, &cli.output)?;
     Ok(())

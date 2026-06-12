@@ -72,6 +72,55 @@ impl<'a> TLT<'a> {
         Ok(())
     }
 
+    /// in nature order
+    ///
+    /// `a, b, c -> a, b c`
+    pub fn add_buildin_funcs<'b, 'c: 'a>(
+        &mut self,
+        funcs: impl Iterator<Item = (&'c str, Vec<PrimKind>, Vec<PrimKind>)> + 'b,
+    ) -> Vec<(&'c str, usize)> {
+        let mut id = usize::MAX;
+        let mut get_id = move || {
+            let ret = id;
+            id -= 1;
+            ret
+        };
+
+        let mut ret = vec![];
+        for (name, inputs, outputs) in funcs {
+            let func_id = get_id();
+            let ty = self.type_store.c_type(CType {
+                cst_id: func_id,
+                inputs: inputs
+                    .into_iter()
+                    .map(|kind| Prim {
+                        cst_id: get_id(),
+                        kind,
+                    })
+                    .rev()
+                    .collect(),
+                outputs: outputs
+                    .into_iter()
+                    .map(|kind| Prim {
+                        cst_id: get_id(),
+                        kind,
+                    })
+                    .rev()
+                    .collect(),
+            });
+
+            ret.push((name, func_id));
+            self.block
+                .last_mut()
+                .unwrap()
+                .insert(name, (func_id, ty))
+                .is_some()
+                .then(|| panic!("buildin func redeclare"));
+        }
+
+        ret
+    }
+
     // left to right = first to last
     pub(crate) fn normaliaze_kind(&self, kind: &Kind) -> Option<Vec<Prim>> {
         match kind {

@@ -117,7 +117,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         Ok(())
     }
 
-    pub(super) fn to_llvm_type(&self, p: PrimKind) -> BasicTypeEnum<'ctx> {
+    pub fn to_llvm_type(&self, p: PrimKind) -> BasicTypeEnum<'ctx> {
         match p {
             PrimKind::Int => self
                 .llvm
