@@ -131,6 +131,7 @@ pub struct ExprMagic {
 pub enum Magic {
     Printf(Id),
     Scanf(Id),
+    New(Id),
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]

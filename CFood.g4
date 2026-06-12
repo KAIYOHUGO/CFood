@@ -23,6 +23,7 @@ TY_void: 'void';
 
 MAGIC_printf: 'printf';
 MAGIC_scanf: 'scanf';
+MAGIC_new: 'new';
 
 PAREN_L: '(';
 PAREN_R: ')';
@@ -227,6 +228,7 @@ atom
 magic
     : MAGIC_printf
     | MAGIC_scanf
+    | MAGIC_new
     ;
 
 // low to high

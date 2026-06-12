@@ -34,6 +34,7 @@ pub struct Compiler<'a, 'ctx> {
 pub(super) struct Symbol<'ctx> {
     pub printf: FunctionValue<'ctx>,
     pub scanf: FunctionValue<'ctx>,
+    pub malloc: FunctionValue<'ctx>,
     pub power_both_side: FunctionValue<'ctx>,
     pub ctors: Vec<FunctionValue<'ctx>>,
 }
@@ -59,6 +60,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let magic_type = int_ty.fn_type(&[llvm.context.ptr_type(Default::default()).into()], true);
         let printf = llvm.module.add_function("printf", magic_type, None);
         let scanf = llvm.module.add_function("scanf", magic_type, None);
+        let malloc =
+            llvm.module
+                .add_function("malloc", int_ty.fn_type(&[int_ty.into()], false), None);
 
         let f64_ty = llvm.context.f64_type();
         let power_both_side = llvm.module.add_function(
@@ -66,9 +70,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             f64_ty.fn_type(&[f64_ty.into(), f64_ty.into()], false),
             None,
         );
+
         let symbol = Symbol {
             printf,
             scanf,
+            malloc,
             power_both_side,
             ctors: vec![],
         };

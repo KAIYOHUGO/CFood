@@ -375,23 +375,44 @@ impl<'ctx> ExprCompiler<'ctx> {
     }
 
     fn compile_magic(&mut self, com: &mut Compiler<'_, 'ctx>, n: &ExprMagic) -> Result<()> {
-        self.compile_expr(com, &n.rhs)?;
-        self.stack.reverse();
-        let args: Vec<BasicMetadataValueEnum> = mem::take(&mut self.stack)
-            .into_iter()
-            .map(|x| x.into())
-            .collect();
+        let value = match &n.lhs {
+            Magic::New(_) => {
+                let value = compile_expr(com, &n.rhs)?;
+                let call = com.llvm.builder.build_direct_call(
+                    com.symbol.malloc,
+                    &[value.get_type().size_of().unwrap().into()],
+                    "new_malloc",
+                )?;
 
-        let value = match n.lhs {
-            Magic::Printf(_) => {
-                com.llvm
-                    .builder
-                    .build_direct_call(com.symbol.printf, &args, "printf")?
+                let ptr = com.llvm.builder.build_int_to_ptr(
+                    call.try_as_basic_value().unwrap_basic().into_int_value(),
+                    com.llvm.context.ptr_type(Default::default()),
+                    "new_malloc_ptr",
+                )?;
+                com.llvm.builder.build_store(ptr, value)?;
+
+                call
             }
-            Magic::Scanf(_) => {
-                com.llvm
-                    .builder
-                    .build_direct_call(com.symbol.scanf, &args, "scanf")?
+            x => {
+                let mut rhs = Self::default();
+                rhs.compile_expr(com, &n.rhs)?;
+                let args: Vec<BasicMetadataValueEnum> =
+                    rhs.stack.into_iter().rev().map(|x| x.into()).collect();
+
+                match x {
+                    Magic::Printf(_) => {
+                        com.llvm
+                            .builder
+                            .build_direct_call(com.symbol.printf, &args, "printf")?
+                    }
+                    Magic::Scanf(_) => {
+                        com.llvm
+                            .builder
+                            .build_direct_call(com.symbol.scanf, &args, "scanf")?
+                    }
+
+                    _ => unreachable!(),
+                }
             }
         }
         .try_as_basic_value()

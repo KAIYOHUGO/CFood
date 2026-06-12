@@ -329,6 +329,7 @@ impl<'a> Visitor for CstToSexpr<'a> {
         Ok(match n {
             Magic::Printf(id) => format!("(magic printf {}{})", self.span(id), self.extra(id.0)),
             Magic::Scanf(id) => format!("(magic scanf {}{})", self.span(id), self.extra(id.0)),
+            Magic::New(id) => format!("(magic new {}{})", self.span(id), self.extra(id.0)),
         })
     }
 

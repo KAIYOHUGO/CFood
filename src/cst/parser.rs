@@ -722,6 +722,7 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
         let lhs = match magic.get_token_type() {
             cfoodlexer::MAGIC_printf => Magic::Printf(lhs_id),
             cfoodlexer::MAGIC_scanf => Magic::Scanf(lhs_id),
+            cfoodlexer::MAGIC_new => Magic::New(lhs_id),
             _ => bail_cst!(),
         };
         let rhs = Box::new(

@@ -409,9 +409,14 @@ pub fn check_expr_magic(tlt: &mut TLT, n: &ExprMagic) -> Result<()> {
     check_expr(tlt, &n.rhs)?;
     let rhs = tlt.type_store.get_type_id(n.rhs.mark()).unwrap();
     let rhs = tlt.type_store.get(rhs);
-    let is_vaild = rhs.as_c_type().is_some_and(|x| {
-        x.inputs.is_empty() && x.outputs.last().is_some_and(|x| x.kind == PrimKind::ConStr)
-    });
+    let is_vaild = match n.lhs {
+        Magic::New(_) => rhs
+            .as_c_type()
+            .is_some_and(|x| x.inputs.is_empty() && !x.outputs.is_empty()),
+        _ => rhs.as_c_type().is_some_and(|x| {
+            x.inputs.is_empty() && x.outputs.last().is_some_and(|x| x.kind == PrimKind::ConStr)
+        }),
+    };
     if !is_vaild {
         let (message, help) = match n.lhs {
             Magic::Printf(_) => (
@@ -422,6 +427,7 @@ pub fn check_expr_magic(tlt: &mut TLT, n: &ExprMagic) -> Result<()> {
                 "Invalid argument for scanf",
                 "Pass a string expression to scanf.",
             ),
+            Magic::New(_) => ("Invalid argument for new", "Pass a concrete type to new."),
         };
 
         tlt.errors.push(CFoodError {
