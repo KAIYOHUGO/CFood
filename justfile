@@ -1,6 +1,9 @@
 build-grammar:
     java -jar ./antlr.jar -visitor ./CFood.g4 -o ./src/antlr
 
+build-swl:
+    cargo build -p swl --release
+
 run FILE:
     cargo run -- {{FILE}}
     llc -filetype=obj output.ll -o output.o --relocation-model=pic
