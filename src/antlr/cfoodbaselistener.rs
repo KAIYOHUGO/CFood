@@ -528,6 +528,18 @@ pub trait CFoodBaseListener<'arena>:
      * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
      * @param ctx the parse tree
 ,      */
+    fn enter_expr_cast_refer_use(&mut self, _ctx: &Expr_cast_refer_useContext<'input, 'arena>) {}
+    /**
+     * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.
+     * @param ctx the parse tree
+     */
+    fn exit_expr_cast_refer_use(&mut self, _ctx: &Expr_cast_refer_useContext<'input, 'arena>) {}
+
+
+    /**
+     * Enter a parse tree produced by \{@link CFoodBaseParser#s}.
+     * @param ctx the parse tree
+,      */
     fn enter_expr_unary_pass(&mut self, _ctx: &Expr_unary_passContext<'input, 'arena>) {}
     /**
      * Exit a parse tree produced by \{@link  CFoodBaseParser#s}.

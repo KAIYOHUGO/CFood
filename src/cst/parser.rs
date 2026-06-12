@@ -372,6 +372,7 @@ impl<'input: 'arena, 'arena> CFoodVisitor<'input, 'arena> for Parser {
             cfoodlexer::TY_float => Kind::Float(id),
             cfoodlexer::TY_str => Kind::ConStr(id),
             cfoodlexer::TY_void => Kind::Void(id),
+            cfoodlexer::TY_bool => Kind::Bool(id),
 
             _ => bail_cst!(),
         };

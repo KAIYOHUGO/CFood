@@ -387,6 +387,16 @@ where
     /// @param ctx the parse tree
     fn exit_expr_cast_use<'input: 'arena>(&mut self, _ctx: &Expr_cast_useContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
 
+    /// Enter a parse tree produced by the {@code expr_cast_refer_use}
+    /// labeled alternative in {@link CFoodParser#expr_cast}.
+    /// @param ctx the parse tree
+    fn enter_expr_cast_refer_use<'input: 'arena>(&mut self, _ctx: &Expr_cast_refer_useContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
+    /// Exit a parse tree produced by the {@code expr_cast_refer_use}
+    /// labeled alternative in {@link CFoodParser#expr_cast}.
+    /// @param ctx the parse tree
+    fn exit_expr_cast_refer_use<'input: 'arena>(&mut self, _ctx: &Expr_cast_refer_useContext<'input, 'arena, Tok>) -> Result<(), ANTLRError> { Ok(()) }
+
     /// Enter a parse tree produced by the {@code expr_unary_pass}
     /// labeled alternative in {@link CFoodParser#expr_unary}.
     /// @param ctx the parse tree

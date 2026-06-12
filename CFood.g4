@@ -19,6 +19,7 @@ TY_int: 'int';
 TY_float: 'float';
 TY_str: 'str';
 TY_void: 'void';
+TY_bool: 'bool';
 
 
 MAGIC_printf: 'printf';
@@ -115,6 +116,7 @@ ty_kind
     | TY_float # ty_kind_ty
     | TY_str   # ty_kind_ty
     | TY_void  # ty_kind_ty
+    | TY_bool  # ty_kind_ty
     | TYPE     # ty_kind_type
     ;
 
