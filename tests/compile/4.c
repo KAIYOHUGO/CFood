@@ -3,7 +3,7 @@ int main(void) {
     ;
   while (1 > 2)
     ;
-  this_should_hoist;
+  this_should_hoist 1 1.0;
 }
 
-void this_should_hoist() {}
+void this_should_hoist(int a, float b) {}

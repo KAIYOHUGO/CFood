@@ -216,8 +216,9 @@ pub fn hoist_decl_func<'a, 'b: 'a>(tlt: &mut TLT<'a>, n: &'b DeclFunc) -> Result
     });
 
     let inputs = params
-        .iter()
-        .map(|x| tlt.type_store.get(*x))
+        .into_iter()
+        .rev()
+        .map(|x| tlt.type_store.get(x))
         .fold(vec![], |acc, x| {
             [acc, x.clone().expect_c_type().outputs].concat()
         });

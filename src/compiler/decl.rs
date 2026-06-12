@@ -14,6 +14,7 @@ pub fn hoist_decl_func(com: &mut Compiler, n: &DeclFunc) -> Result<()> {
     let inputs: Vec<BasicMetadataTypeEnum> = ty
         .inputs
         .iter()
+        .rev()
         .map(|x| com.to_llvm_type(x.kind).into())
         .collect();
     let outputs: Vec<_> = ty
@@ -31,22 +32,6 @@ pub fn hoist_decl_func(com: &mut Compiler, n: &DeclFunc) -> Result<()> {
 }
 
 pub fn compile_decl_func(com: &mut Compiler, n: &DeclFunc) -> Result<()> {
-    // let id = com.type_store.get_type_id(n.id).unwrap();
-    // let ty = com.type_store.get(id).as_c_type().unwrap();
-    // let inputs: Vec<BasicMetadataTypeEnum> = ty
-    //     .inputs
-    //     .iter()
-    //     .map(|x| com.to_llvm_type(x.kind).into())
-    //     .collect();
-    // let outputs: Vec<_> = ty
-    //     .outputs
-    //     .iter()
-    //     .map(|x| com.to_llvm_type(x.kind))
-    //     .collect();
-
-    // let ret_ty = com.llvm.context.struct_type(&outputs, false);
-    // let ty = ret_ty.fn_type(&inputs, false);
-    // let func = com.llvm.module.add_function(&n.name.inner, ty, None);
     let func = com.var_store.get(n.id).clone().expect_func();
 
     let entry = com.llvm.context.append_basic_block(func.func, "entry");
