@@ -4,15 +4,15 @@ float real_part(float r, float _) { return r; }
 float image_part(float _, float i) { return i; }
 
 Complex complex_mul(Complex a, Complex b) {
-  return (real_part(a) * real_part(b) - image_part(a) * image_part(b),
-          real_part(a) * image_part(b) + image_part(a) * real_part(b));
+  return (real_part a * real_part b - image_part a * image_part b,
+          real_part a * image_part b + image_part a * real_part b);
 }
 Complex complex_add(Complex a, Complex b) {
-  return (real_part(a) + real_part(b), image_part(a) + image_part(b));
+  return (real_part a + real_part b, image_part a + image_part b);
 }
 
 float complex_abs_square(Complex a) {
-  return real_part(a) * real_part(a) + image_part(a) * image_part(a);
+  return real_part a * real_part a + image_part a * image_part a;
 }
 
 int main(void) {
@@ -29,8 +29,8 @@ int main(void) {
       let z = (0.0, 0.0);
       int iter = 0;
 
-      while (complex_abs_square(z) <= 4.0 && iter < max_iter) {
-        z = complex_add(complex_mul(z, z), c);
+      while (complex_abs_square z <= 4.0 && iter < max_iter) {
+        z = complex_add complex_mul z z c;
         iter = iter + 1;
       }
 
