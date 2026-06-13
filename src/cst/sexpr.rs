@@ -354,7 +354,7 @@ impl<'a> Visitor for CstToSexpr<'a> {
             Expr::Lit(x) => self.visit_lit(x),
             Expr::Var(x) => self.visit_expr_var(x),
             Expr::Refer(x) => self.visit_expr_refer(x),
-            Expr::Empty(id) => Ok(Self::Res::default()),
+            Expr::Empty(_) => Ok(Self::Res::default()),
         }
     }
 
